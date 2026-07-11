@@ -49,6 +49,10 @@ async fn validates_sorts_and_checksums_migrations_before_backend_execution() {
     let recorded = migrator.backend().migrations.lock().unwrap();
     assert_eq!(recorded[0].version(), "001");
     assert_eq!(recorded[0].checksum().len(), 64);
+    assert_eq!(
+        recorded[0].checksum(),
+        "10e0a2282e051aa0de3c957c7ef36d748cea0a244fed443abb5917b55d7a8384"
+    );
     assert_ne!(recorded[0].checksum(), recorded[1].checksum());
 }
 
