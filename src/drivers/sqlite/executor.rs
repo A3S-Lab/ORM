@@ -1,13 +1,17 @@
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio_rusqlite::rusqlite;
 use tokio_rusqlite::rusqlite::types::{Value as SqliteValue, ValueRef};
 
-use crate::{CompiledQuery, ExecuteResult, Executor, QueryResult, TransactionManager, Value};
+use crate::{
+    CompiledQuery, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager, Value,
+};
 
-use super::{SqliteError, SqliteRow, SqliteTransaction};
+use super::{SqliteError, SqliteRow, SqliteTransaction, SqliteTransactionError};
 
 #[derive(Clone)]
 pub struct SqliteExecutor {
@@ -32,6 +36,38 @@ impl SqliteExecutor {
 
     pub fn connection(&self) -> &tokio_rusqlite::Connection {
         &self.connection
+    }
+
+    /// Run an operation inside a transaction and always complete it.
+    ///
+    /// The operation is committed on success and rolled back on error. If the
+    /// calling task is cancelled while the operation is running, dropping the
+    /// transaction schedules a rollback while retaining the connection gate.
+    pub async fn transaction<T, E, F>(&self, operation: F) -> Result<T, SqliteTransactionError<E>>
+    where
+        T: Send,
+        E: std::error::Error + Send + Sync + 'static,
+        F: for<'a> FnOnce(
+            &'a SqliteTransaction,
+        ) -> Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>,
+    {
+        let transaction = self.begin().await.map_err(SqliteTransactionError::Begin)?;
+        match operation(&transaction).await {
+            Ok(value) => {
+                transaction
+                    .commit()
+                    .await
+                    .map_err(SqliteTransactionError::Commit)?;
+                Ok(value)
+            }
+            Err(operation) => match transaction.rollback().await {
+                Ok(()) => Err(SqliteTransactionError::Operation(operation)),
+                Err(rollback) => Err(SqliteTransactionError::OperationAndRollback {
+                    operation,
+                    rollback,
+                }),
+            },
+        }
     }
 
     /// Execute trusted schema SQL. Application values should use typed queries.

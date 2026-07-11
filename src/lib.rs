@@ -19,7 +19,9 @@ pub mod value;
 pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 pub use decode::{DecodeError, FromRow, FromValue, Row};
 #[cfg(feature = "sqlite")]
-pub use drivers::sqlite::{SqliteError, SqliteExecutor, SqliteRow};
+pub use drivers::sqlite::{
+    SqliteError, SqliteExecutor, SqliteRow, SqliteTransaction, SqliteTransactionError,
+};
 pub use error::{Error, Result};
 pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,

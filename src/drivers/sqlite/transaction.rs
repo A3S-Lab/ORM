@@ -11,14 +11,16 @@ use super::{SqliteError, SqliteExecutor, SqliteRow};
 /// clones of the executor wait until this transaction commits or rolls back.
 pub struct SqliteTransaction {
     executor: SqliteExecutor,
-    _guard: OwnedMutexGuard<()>,
+    guard: Option<OwnedMutexGuard<()>>,
+    completed: bool,
 }
 
 impl SqliteTransaction {
     pub(crate) fn new(executor: SqliteExecutor, guard: OwnedMutexGuard<()>) -> Self {
         Self {
             executor,
-            _guard: guard,
+            guard: Some(guard),
+            completed: false,
         }
     }
 }
@@ -42,11 +44,33 @@ impl Executor for SqliteTransaction {
 
 #[async_trait]
 impl Transaction for SqliteTransaction {
-    async fn commit(self) -> Result<(), Self::Error> {
-        self.executor.execute_control("COMMIT").await
+    async fn commit(mut self) -> Result<(), Self::Error> {
+        self.executor.execute_control("COMMIT").await?;
+        self.completed = true;
+        Ok(())
     }
 
-    async fn rollback(self) -> Result<(), Self::Error> {
-        self.executor.execute_control("ROLLBACK").await
+    async fn rollback(mut self) -> Result<(), Self::Error> {
+        self.executor.execute_control("ROLLBACK").await?;
+        self.completed = true;
+        Ok(())
+    }
+}
+
+impl Drop for SqliteTransaction {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let Some(guard) = self.guard.take() else {
+            return;
+        };
+        let executor = self.executor.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _guard = guard;
+                let _ = executor.execute_control("ROLLBACK").await;
+            });
+        }
     }
 }

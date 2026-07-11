@@ -61,6 +61,10 @@ let database = Database::new(SqliteDialect, executor);
 # }
 ```
 
+Use the scoped transaction API for application work. It commits on success
+and rolls back on an operation error. If its Tokio task is cancelled, the
+transaction retains the connection gate until its fallback rollback finishes.
+
 Disable the default SQLite driver for compile-only or custom-driver use:
 
 ```toml
@@ -79,7 +83,7 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
 | Typed scalar, tuple, nullable, and checked integer decoding | Yes |
-| SQLite transactions with connection-level isolation | Yes |
+| Cancellation-safe scoped SQLite transactions | Yes |
 | CTEs, subqueries, migrations, plugins | Planned |
 | PostgreSQL and MySQL runtime drivers | Planned |
 

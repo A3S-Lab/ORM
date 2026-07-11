@@ -80,3 +80,62 @@ async fn excludes_queries_from_other_executor_clones() {
         .unwrap();
     assert_eq!(result.rows.len(), 1);
 }
+
+#[tokio::test]
+async fn scoped_transaction_commits_on_success_and_rolls_back_on_error() {
+    let executor = executor().await;
+
+    let value = executor
+        .transaction(|transaction| {
+            Box::pin(async move {
+                transaction.execute(&insert(1)).await.unwrap();
+                Ok::<_, std::io::Error>("committed")
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(value, "committed");
+
+    let error = executor
+        .transaction(|transaction| {
+            Box::pin(async move {
+                transaction.execute(&insert(2)).await.unwrap();
+                Err::<(), _>(std::io::Error::other("reject operation"))
+            })
+        })
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("reject operation"));
+    assert_eq!(
+        executor.fetch_all(&select_all()).await.unwrap().rows.len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn aborting_scoped_transaction_rolls_back_and_releases_connection() {
+    let executor = executor().await;
+    let task_executor = executor.clone();
+    let (inserted_tx, inserted_rx) = tokio::sync::oneshot::channel();
+
+    let task = tokio::spawn(async move {
+        task_executor
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    transaction.execute(&insert(1)).await.unwrap();
+                    inserted_tx.send(()).unwrap();
+                    std::future::pending::<Result<(), std::io::Error>>().await
+                })
+            })
+            .await
+    });
+    inserted_rx.await.unwrap();
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+
+    let result = tokio::time::timeout(Duration::from_secs(1), executor.fetch_all(&select_all()))
+        .await
+        .expect("connection remained locked after transaction task was aborted")
+        .unwrap();
+    assert!(result.rows.is_empty());
+}

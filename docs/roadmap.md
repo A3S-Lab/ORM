@@ -11,11 +11,11 @@ The project is being developed incrementally. Completed items describe implement
 - Driver-neutral async execution.
 - Tokio-safe SQLite execution and integration tests.
 - Typed result decoding for scalars, tuples, nullable values, and checked integers.
-- Explicit SQLite transactions that exclude concurrent executor clones.
+- Cancellation-safe SQLite transaction scopes that exclude concurrent executor clones.
 
 ## Next
 
-- Cancellation-safe scoped transactions and nested savepoints.
+- Nested savepoints with the same cancellation guarantees as outer transactions.
 - Column and expression aliases.
 - Multi-row inserts and conflict handling.
 - Functions, aggregates, grouping, and having clauses.

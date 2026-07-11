@@ -18,9 +18,9 @@ The compiler never opens a connection, and drivers never need to understand type
 
 ## SQLite transaction isolation
 
-Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal execution acquires the gate for one operation; a transaction owns it from `BEGIN IMMEDIATE` through explicit `commit` or `rollback`. Transaction statements use an internal unlocked path so they cannot deadlock themselves. Other clones wait at the gate and cannot interleave statements with the active transaction.
+Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal execution acquires the gate for one operation; a transaction owns it from `BEGIN IMMEDIATE` through `commit` or `rollback`. Transaction statements use an internal unlocked path so they cannot deadlock themselves. Other clones wait at the gate and cannot interleave statements with the active transaction.
 
-Transactions currently require explicit completion. A cancellation-safe scoped transaction API remains required before the SQLite driver is considered fully production-ready.
+`SqliteExecutor::transaction` is the recommended application API. It commits on success, rolls back operation errors, and reports rollback failure without discarding the original operation error. Dropping an incomplete transaction schedules rollback and transfers the connection gate into that cleanup task. This makes Tokio task cancellation safe while a runtime is active. Explicit transactions remain available for infrastructure code that needs manual lifetime control.
 
 ## Safety boundaries
 
