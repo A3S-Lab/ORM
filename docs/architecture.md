@@ -9,11 +9,18 @@
 - `query` owns immutable statement builders, split by SQL statement kind.
 - `ast` is the internal representation shared by builders and compilers. It is not public API.
 - `compiler` turns the AST into SQL and bound parameters. `dialect` owns identifier quoting, placeholders, and feature flags.
-- `executor` defines driver-neutral async execution and the `Database` facade.
+- `decode` converts driver-neutral row values into inferred query output types, with checked numeric conversion.
+- `executor` defines driver-neutral async execution, transaction contracts, and the `Database` facade.
 - `drivers/<driver>` owns database-client adaptation, row representation, and driver-specific errors.
 - `value` is the common parameter and untyped result-value boundary.
 
 The compiler never opens a connection, and drivers never need to understand typed builder state. This allows compile-only use and keeps new runtime integrations local to `drivers`.
+
+## SQLite transaction isolation
+
+Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal execution acquires the gate for one operation; a transaction owns it from `BEGIN IMMEDIATE` through explicit `commit` or `rollback`. Transaction statements use an internal unlocked path so they cannot deadlock themselves. Other clones wait at the gate and cannot interleave statements with the active transaction.
+
+Transactions currently require explicit completion. A cancellation-safe scoped transaction API remains required before the SQLite driver is considered fully production-ready.
 
 ## Safety boundaries
 

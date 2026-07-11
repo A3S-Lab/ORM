@@ -10,6 +10,13 @@ orm_table! {
         id: i64 => "id",
         name: String => "name",
         age: i32 => "age",
+        nickname: Option<String> => "nickname",
+    }
+}
+
+orm_table! {
+    struct PersonWithNarrowAge => "person" {
+        age: i8 => "age",
     }
 }
 
@@ -21,7 +28,8 @@ async fn executes_crud_against_real_sqlite() {
             "create table person (\
              id integer primary key autoincrement, \
              name text not null, \
-             age integer not null)",
+             age integer not null, \
+             nickname text)",
         )
         .await
         .unwrap();
@@ -71,4 +79,56 @@ async fn executes_crud_against_real_sqlite() {
         .await
         .unwrap();
     assert_eq!(deleted.rows_affected, 1);
+}
+
+#[tokio::test]
+async fn decodes_selected_columns_into_the_query_output_type() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    executor
+        .execute_schema(
+            "create table person (id integer primary key, name text not null, age integer not null, nickname text)",
+        )
+        .await
+        .unwrap();
+    let database = Database::new(SqliteDialect, executor);
+    database
+        .execute(
+            insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36)
+                .value(Person::nickname(), None::<String>),
+        )
+        .await
+        .unwrap();
+
+    let rows = database
+        .fetch_all_as(select_from::<Person>().select((
+            Person::id(),
+            Person::name(),
+            Person::nickname(),
+        )))
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(rows, vec![(1_i64, "Ada".to_owned(), None)]);
+}
+
+#[tokio::test]
+async fn reports_integer_overflow_with_the_column_index() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    executor
+        .execute_schema(
+            "create table person (age integer not null); insert into person values (1000)",
+        )
+        .await
+        .unwrap();
+    let database = Database::new(SqliteDialect, executor);
+
+    let error = database
+        .fetch_all_as(select_from::<PersonWithNarrowAge>().select(PersonWithNarrowAge::age()))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("column 0"));
+    assert!(error.to_string().contains("i8"));
 }

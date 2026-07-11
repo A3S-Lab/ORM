@@ -6,6 +6,7 @@
 
 mod ast;
 pub mod compiler;
+pub mod decode;
 #[cfg(feature = "sqlite")]
 pub mod drivers;
 pub mod error;
@@ -16,10 +17,13 @@ pub mod schema;
 pub mod value;
 
 pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
+pub use decode::{DecodeError, FromRow, FromValue, Row};
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{SqliteError, SqliteExecutor, SqliteRow};
 pub use error::{Error, Result};
-pub use executor::{Database, ExecuteResult, Executor, QueryResult};
+pub use executor::{
+    Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
+};
 pub use expression::{Column, Expression, OrderDirection};
 pub use query::{delete_from, insert_into, select_from, update_table, Query};
 pub use schema::{Table, TableRef};

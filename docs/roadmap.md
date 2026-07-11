@@ -10,11 +10,13 @@ The project is being developed incrementally. Completed items describe implement
 - PostgreSQL, SQLite, and MySQL compilation.
 - Driver-neutral async execution.
 - Tokio-safe SQLite execution and integration tests.
+- Typed result decoding for scalars, tuples, nullable values, and checked integers.
+- Explicit SQLite transactions that exclude concurrent executor clones.
 
 ## Next
 
-- Typed row decoding and column aliases.
-- Transactions with driver-backed commit and rollback.
+- Cancellation-safe scoped transactions and nested savepoints.
+- Column and expression aliases.
 - Multi-row inserts and conflict handling.
 - Functions, aggregates, grouping, and having clauses.
 - Subqueries, common table expressions, and set operations.

@@ -10,6 +10,20 @@ pub enum Value {
     Bytes(Vec<u8>),
 }
 
+impl Value {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Bool(_) => "boolean",
+            Self::I64(_) => "signed integer",
+            Self::U64(_) => "unsigned integer",
+            Self::F64(_) => "floating-point number",
+            Self::String(_) => "string",
+            Self::Bytes(_) => "bytes",
+        }
+    }
+}
+
 /// Converts a Rust value into a parameter for a specific typed column.
 pub trait IntoSqlValue<T> {
     fn into_sql_value(self) -> Value;

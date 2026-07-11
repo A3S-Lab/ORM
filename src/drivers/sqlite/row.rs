@@ -1,8 +1,14 @@
-use crate::Value;
+use crate::{Row, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SqliteRow {
     values: Vec<Value>,
+}
+
+impl Row for SqliteRow {
+    fn value(&self, index: usize) -> Option<&Value> {
+        self.get(index)
+    }
 }
 
 impl SqliteRow {

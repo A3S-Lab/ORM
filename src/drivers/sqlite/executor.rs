@@ -1,28 +1,32 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio_rusqlite::rusqlite;
 use tokio_rusqlite::rusqlite::types::{Value as SqliteValue, ValueRef};
 
-use crate::{CompiledQuery, ExecuteResult, Executor, QueryResult, Value};
+use crate::{CompiledQuery, ExecuteResult, Executor, QueryResult, TransactionManager, Value};
 
-use super::{SqliteError, SqliteRow};
+use super::{SqliteError, SqliteRow, SqliteTransaction};
 
 #[derive(Clone)]
 pub struct SqliteExecutor {
     connection: tokio_rusqlite::Connection,
+    transaction_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl SqliteExecutor {
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, SqliteError> {
         Ok(Self {
             connection: tokio_rusqlite::Connection::open(path).await?,
+            transaction_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
     pub async fn open_in_memory() -> Result<Self, SqliteError> {
         Ok(Self {
             connection: tokio_rusqlite::Connection::open_in_memory().await?,
+            transaction_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 
@@ -32,20 +36,18 @@ impl SqliteExecutor {
 
     /// Execute trusted schema SQL. Application values should use typed queries.
     pub async fn execute_schema(&self, sql: impl Into<String>) -> Result<(), SqliteError> {
+        let _guard = self.transaction_lock.lock().await;
         let sql = sql.into();
         self.connection
             .call(move |connection| connection.execute_batch(&sql))
             .await?;
         Ok(())
     }
-}
 
-#[async_trait]
-impl Executor for SqliteExecutor {
-    type Row = SqliteRow;
-    type Error = SqliteError;
-
-    async fn execute(&self, query: &CompiledQuery) -> Result<ExecuteResult, Self::Error> {
+    pub(crate) async fn execute_unlocked(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<ExecuteResult, SqliteError> {
         let sql = query.sql.clone();
         let parameters = sqlite_parameters(&query.parameters)?;
         let rows_affected = self
@@ -59,10 +61,10 @@ impl Executor for SqliteExecutor {
         })
     }
 
-    async fn fetch_all(
+    pub(crate) async fn fetch_all_unlocked(
         &self,
         query: &CompiledQuery,
-    ) -> Result<QueryResult<Self::Row>, Self::Error> {
+    ) -> Result<QueryResult<SqliteRow>, SqliteError> {
         let sql = query.sql.clone();
         let parameters = sqlite_parameters(&query.parameters)?;
         let rows = self
@@ -83,6 +85,43 @@ impl Executor for SqliteExecutor {
             })
             .await?;
         Ok(QueryResult { rows })
+    }
+
+    pub(crate) async fn execute_control(&self, sql: &'static str) -> Result<(), SqliteError> {
+        self.connection
+            .call(move |connection| connection.execute_batch(sql))
+            .await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Executor for SqliteExecutor {
+    type Row = SqliteRow;
+    type Error = SqliteError;
+
+    async fn execute(&self, query: &CompiledQuery) -> Result<ExecuteResult, Self::Error> {
+        let _guard = self.transaction_lock.lock().await;
+        self.execute_unlocked(query).await
+    }
+
+    async fn fetch_all(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<QueryResult<Self::Row>, Self::Error> {
+        let _guard = self.transaction_lock.lock().await;
+        self.fetch_all_unlocked(query).await
+    }
+}
+
+#[async_trait]
+impl TransactionManager for SqliteExecutor {
+    type Transaction = SqliteTransaction;
+
+    async fn begin(&self) -> Result<Self::Transaction, Self::Error> {
+        let guard = self.transaction_lock.clone().lock_owned().await;
+        self.execute_control("BEGIN IMMEDIATE").await?;
+        Ok(SqliteTransaction::new(self.clone(), guard))
     }
 }
 

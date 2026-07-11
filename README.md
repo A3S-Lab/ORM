@@ -10,6 +10,8 @@ It is not an Active Record framework: records do not own persistence behavior, q
 - Keep query construction independent from database drivers.
 - Inspect or transport compiled SQL without opening a connection.
 - Run SQLite operations without blocking the Tokio runtime.
+- Decode selected columns into their inferred Rust tuple types.
+- Keep transactions isolated from concurrent users of a cloned SQLite executor.
 - Add drivers without coupling them to the query API.
 
 ## Quick start
@@ -76,7 +78,9 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | PostgreSQL, SQLite, and MySQL SQL compilation | Yes |
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
-| Transactions, CTEs, subqueries, migrations, plugins | Planned |
+| Typed scalar, tuple, nullable, and checked integer decoding | Yes |
+| SQLite transactions with connection-level isolation | Yes |
+| CTEs, subqueries, migrations, plugins | Planned |
 | PostgreSQL and MySQL runtime drivers | Planned |
 
 MySQL compilation intentionally rejects `RETURNING`, which that dialect does not support. Dialect support does not imply that a runtime driver is bundled.
@@ -101,7 +105,7 @@ See [Architecture](docs/architecture.md) for module ownership and extension poin
 
 ## Status
 
-This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes typed row decoding, transactions, composable expressions and subqueries, migrations, plugins, and production database drivers. See [Roadmap](docs/roadmap.md).
+This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes cancellation-safe transaction scopes, composable expressions and subqueries, migrations, plugins, and production database drivers. See [Roadmap](docs/roadmap.md).
 
 ## Development
 

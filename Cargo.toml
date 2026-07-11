@@ -10,12 +10,13 @@ categories = ["database"]
 
 [features]
 default = ["sqlite"]
-sqlite = ["dep:tokio-rusqlite"]
+sqlite = ["dep:tokio", "dep:tokio-rusqlite"]
 
 [dependencies]
 async-trait = "0.1"
 thiserror = "2"
+tokio = { version = "1", features = ["sync"], optional = true }
 tokio-rusqlite = { version = "0.7", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

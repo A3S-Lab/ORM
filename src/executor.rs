@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 
 use crate::compiler::{CompiledQuery, Dialect};
+use crate::decode::{FromRow, Row};
 use crate::query::Query;
 use crate::Result;
 
@@ -99,6 +100,25 @@ where
             .map_err(DatabaseError::Execute)
     }
 
+    pub async fn fetch_all_as<Q>(
+        &self,
+        query: Q,
+    ) -> std::result::Result<QueryResult<Q::Output>, DatabaseError<E::Error>>
+    where
+        Q: Query,
+        Q::Output: FromRow,
+        E::Row: Row,
+    {
+        let result = self.fetch_all(query).await?;
+        let rows = result
+            .rows
+            .iter()
+            .map(Q::Output::from_row)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(DatabaseError::Decode)?;
+        Ok(QueryResult { rows })
+    }
+
     pub fn into_parts(self) -> (D, E) {
         (self.dialect, self.executor)
     }
@@ -113,4 +133,6 @@ where
     Build(#[from] crate::Error),
     #[error("database execution failed: {0}")]
     Execute(E),
+    #[error("database row decoding failed: {0}")]
+    Decode(#[from] crate::DecodeError),
 }
