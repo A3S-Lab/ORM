@@ -85,6 +85,7 @@ The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_
 | --- | --- |
 | Typed tables, columns, and bound values | Yes |
 | Immutable SELECT, INSERT, UPDATE, DELETE builders | Yes |
+| Multi-row INSERT and PostgreSQL/SQLite ON CONFLICT | Yes |
 | Filters, boolean expressions, ordering, pagination | Yes |
 | Inner, left, right, and full joins | Yes |
 | PostgreSQL, SQLite, and MySQL SQL compilation | Yes |
@@ -103,6 +104,8 @@ The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_
 | MySQL runtime driver | Planned |
 
 MySQL compilation intentionally rejects `RETURNING`, which that dialect does not support. Dialect support does not imply that a runtime driver is bundled.
+
+Multi-row inserts use typed `InsertRow<T>` values. PostgreSQL and SQLite support conflict targets, `DO NOTHING`, bound conflict updates, and updates from the `excluded` row. Every row must contain the same columns in the same order; inconsistent or duplicate assignments fail during compilation.
 
 ## Migrations
 
@@ -147,7 +150,7 @@ See [Architecture](docs/architecture.md) for module ownership and extension poin
 
 ## Status
 
-This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes multi-row inserts, conflict handling, window functions, set operations, plugins, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
+This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes window functions, set operations, safe raw fragments, plugins, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
 
 ## Development
 

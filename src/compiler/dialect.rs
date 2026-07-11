@@ -3,6 +3,7 @@ pub trait Dialect: Send + Sync {
     fn identifier_quote(&self) -> char;
     fn placeholder(&self, index: usize) -> String;
     fn supports_returning(&self) -> bool;
+    fn supports_on_conflict(&self) -> bool;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,6 +23,10 @@ impl Dialect for PostgresDialect {
     }
 
     fn supports_returning(&self) -> bool {
+        true
+    }
+
+    fn supports_on_conflict(&self) -> bool {
         true
     }
 }
@@ -45,6 +50,10 @@ impl Dialect for SqliteDialect {
     fn supports_returning(&self) -> bool {
         true
     }
+
+    fn supports_on_conflict(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -64,6 +73,10 @@ impl Dialect for MysqlDialect {
     }
 
     fn supports_returning(&self) -> bool {
+        false
+    }
+
+    fn supports_on_conflict(&self) -> bool {
         false
     }
 }

@@ -1,13 +1,16 @@
 mod dialect;
+mod validation;
 
 pub use dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
 use crate::ast::{
-    Assignment, DeleteNode, InsertNode, JoinKind, QueryNode, SelectNode, TableNode, UpdateNode,
+    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectNode,
+    TableNode, UpdateNode,
 };
 use crate::error::{Error, Result};
 use crate::expression::{BinaryOperator, Expression, OrderDirection, UnaryOperator};
 use crate::value::Value;
+use validation::{validate_identifier, verify_assignments, verify_insert_rows};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledQuery {
@@ -116,27 +119,70 @@ impl<D: Dialect> Compiler<'_, D> {
     }
 
     fn insert(&mut self, node: InsertNode) -> Result<()> {
-        if node.assignments.is_empty() {
+        if node.rows.is_empty() || node.rows[0].is_empty() {
             return Err(Error::EmptyInsert);
         }
-        self.verify_assignments(&node.table, &node.assignments, true)?;
+        verify_insert_rows(&node)?;
         self.sql.push_str("insert into ");
         self.table(&node.table)?;
         self.sql.push_str(" (");
-        for (index, assignment) in node.assignments.iter().enumerate() {
+        for (index, assignment) in node.rows[0].iter().enumerate() {
             if index > 0 {
                 self.sql.push_str(", ");
             }
             self.identifier(assignment.column)?;
         }
-        self.sql.push_str(") values (");
-        for (index, assignment) in node.assignments.into_iter().enumerate() {
-            if index > 0 {
+        self.sql.push_str(") values ");
+        for (row_index, row) in node.rows.into_iter().enumerate() {
+            if row_index > 0 {
                 self.sql.push_str(", ");
             }
-            self.parameter(assignment.value);
+            self.sql.push('(');
+            for (column_index, assignment) in row.into_iter().enumerate() {
+                if column_index > 0 {
+                    self.sql.push_str(", ");
+                }
+                self.parameter(assignment.value);
+            }
+            self.sql.push(')');
         }
-        self.sql.push(')');
+        if let Some(conflict) = node.conflict {
+            if !self.dialect.supports_on_conflict() {
+                return Err(Error::Compilation(format!(
+                    "{} does not support on conflict clauses",
+                    self.dialect.name()
+                )));
+            }
+            self.sql.push_str(" on conflict (");
+            for (index, column) in conflict.target.iter().enumerate() {
+                if index > 0 {
+                    self.sql.push_str(", ");
+                }
+                self.identifier(column)?;
+            }
+            self.sql.push_str(") ");
+            match conflict.action {
+                Some(ConflictAction::DoNothing) => self.sql.push_str("do nothing"),
+                Some(ConflictAction::DoUpdate(assignments)) => {
+                    self.sql.push_str("do update set ");
+                    for (index, assignment) in assignments.into_iter().enumerate() {
+                        if index > 0 {
+                            self.sql.push_str(", ");
+                        }
+                        self.identifier(assignment.column)?;
+                        self.sql.push_str(" = ");
+                        match assignment.value {
+                            ConflictValue::Bound(value) => self.parameter(value),
+                            ConflictValue::Excluded { column, .. } => {
+                                self.sql.push_str("excluded.");
+                                self.identifier(column)?;
+                            }
+                        }
+                    }
+                }
+                None => return Err(Error::MissingConflictAction),
+            }
+        }
         self.returning(&node.returning)
     }
 
@@ -144,7 +190,7 @@ impl<D: Dialect> Compiler<'_, D> {
         if node.assignments.is_empty() {
             return Err(Error::EmptyUpdate);
         }
-        self.verify_assignments(&node.table, &node.assignments, false)?;
+        verify_assignments(&node.table, &node.assignments, false)?;
         self.sql.push_str("update ");
         self.table(&node.table)?;
         self.sql.push_str(" set ");
@@ -331,44 +377,4 @@ impl<D: Dialect> Compiler<'_, D> {
         self.sql
             .push_str(&self.dialect.placeholder(self.parameters.len()));
     }
-
-    fn verify_assignments(
-        &self,
-        table: &TableNode,
-        assignments: &[Assignment],
-        insert: bool,
-    ) -> Result<()> {
-        if let Some(wrong) = assignments
-            .iter()
-            .find(|assignment| assignment.table != table.name)
-        {
-            return if insert {
-                Err(Error::WrongInsertTable {
-                    expected: table.name.to_string(),
-                    actual: wrong.table.to_string(),
-                })
-            } else {
-                Err(Error::WrongUpdateTable {
-                    expected: table.name.to_string(),
-                    actual: wrong.table.to_string(),
-                })
-            };
-        }
-        Ok(())
-    }
-}
-
-fn validate_identifier(identifier: &str) -> Result<()> {
-    if identifier.is_empty()
-        || !identifier
-            .chars()
-            .all(|character| character == '_' || character.is_ascii_alphanumeric())
-        || identifier
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_ascii_digit())
-    {
-        return Err(Error::InvalidIdentifier(identifier.to_string()));
-    }
-    Ok(())
 }

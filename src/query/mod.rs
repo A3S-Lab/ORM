@@ -6,7 +6,7 @@ mod update;
 
 pub use cte::Cte;
 pub use delete::{delete_from, DeleteQuery};
-pub use insert::{insert_into, InsertQuery};
+pub use insert::{insert_into, ConflictTarget, InsertQuery, InsertRow};
 pub use select::{select_from, SelectQuery};
 pub use update::{update_table, UpdateQuery};
 

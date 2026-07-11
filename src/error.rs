@@ -10,6 +10,20 @@ pub enum Error {
     DuplicateCte(String),
     #[error("insert query requires at least one value")]
     EmptyInsert,
+    #[error("insert row {row} has columns that differ from the first row")]
+    InconsistentInsertColumns { row: usize },
+    #[error("insert row {row} assigns column {column:?} more than once")]
+    DuplicateInsertColumn { row: usize, column: String },
+    #[error("conflict target requires at least one column")]
+    EmptyConflictTarget,
+    #[error("conflict target requires an action")]
+    MissingConflictAction,
+    #[error("conflict update requires at least one assignment")]
+    EmptyConflictUpdate,
+    #[error("conflict clause assigns column {0:?} more than once")]
+    DuplicateConflictColumn(String),
+    #[error("conflict clause contains a column from table {actual:?}, expected {expected:?}")]
+    WrongConflictTable { expected: String, actual: String },
     #[error("update query requires at least one assignment")]
     EmptyUpdate,
     #[error("insert values belong to table {actual:?}, expected {expected:?}")]

@@ -1,8 +1,8 @@
 #![cfg(feature = "postgres")]
 
 use a3s_orm::{
-    count_all, insert_into, orm_table, select_from, Database, Executor, Migration, MigrationError,
-    Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt, SqlArray,
+    count_all, insert_into, orm_table, select_from, Database, Executor, InsertRow, Migration,
+    MigrationError, Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt, SqlArray,
 };
 
 orm_table! {
@@ -16,6 +16,13 @@ orm_table! {
         label: String => "label",
         payload: Vec<u8> => "payload",
         note: Option<String> => "note",
+    }
+}
+
+orm_table! {
+    struct UpsertRecord => "a3s_orm_upsert_record" {
+        id: i64 => "id",
+        value: String => "value",
     }
 }
 
@@ -72,6 +79,7 @@ async fn executes_typed_queries_against_postgres_pool() {
         .batch_execute(
             "drop table if exists a3s_orm_metric;
              drop table if exists a3s_orm_extended_value;
+             drop table if exists a3s_orm_upsert_record;
              drop table if exists a3s_orm_migration_probe;
              drop table if exists a3s_orm_rollback_probe;
              drop table if exists a3s_orm_migrations;
@@ -96,6 +104,10 @@ async fn executes_typed_queries_against_postgres_pool() {
                 amount numeric not null,
                 tags text[] not null,
                 scores integer[] not null
+             );
+             create table a3s_orm_upsert_record (
+                id bigint primary key,
+                value text not null
              )",
         )
         .await
@@ -288,6 +300,53 @@ async fn executes_typed_queries_against_postgres_pool() {
             SqlArray::from(vec!["rust".to_owned(), "postgres".to_owned()]),
             SqlArray::from(vec![Some(10), None, Some(30)]),
         )]
+    );
+
+    database
+        .execute(
+            insert_into::<UpsertRecord>().rows([
+                InsertRow::new()
+                    .value(UpsertRecord::id(), 1)
+                    .value(UpsertRecord::value(), "first"),
+                InsertRow::new()
+                    .value(UpsertRecord::id(), 2)
+                    .value(UpsertRecord::value(), "second"),
+            ]),
+        )
+        .await
+        .unwrap();
+    database
+        .execute(
+            insert_into::<UpsertRecord>()
+                .rows([
+                    InsertRow::new()
+                        .value(UpsertRecord::id(), 2)
+                        .value(UpsertRecord::value(), "updated"),
+                    InsertRow::new()
+                        .value(UpsertRecord::id(), 3)
+                        .value(UpsertRecord::value(), "third"),
+                ])
+                .on_conflict(UpsertRecord::id())
+                .do_update_from_excluded(UpsertRecord::value()),
+        )
+        .await
+        .unwrap();
+    let upserted = database
+        .fetch_all_as(
+            select_from::<UpsertRecord>()
+                .select((UpsertRecord::id(), UpsertRecord::value()))
+                .order_by(UpsertRecord::id(), a3s_orm::OrderDirection::Asc),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        upserted,
+        vec![
+            (1, "first".to_owned()),
+            (2, "updated".to_owned()),
+            (3, "third".to_owned()),
+        ]
     );
 
     let error = database

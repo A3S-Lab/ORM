@@ -21,10 +21,10 @@ The project is being developed incrementally. Completed items describe implement
 - Typed CTEs, scalar and `IN` subqueries, and correlated `EXISTS`.
 - Selection aliases, basic aggregates, grouping, and having clauses.
 - PostgreSQL UUID, JSON/JSONB, temporal, Numeric, and nullable array round trips.
+- Multi-row inserts and PostgreSQL/SQLite conflict handling.
 
 ## Next
 
-- Multi-row inserts and conflict handling.
 - Window functions and set operations.
 - Safe raw SQL fragments with bound parameters.
 - PostgreSQL enum, range, network, and custom-domain codecs.

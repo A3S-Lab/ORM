@@ -46,8 +46,37 @@ pub(crate) enum JoinKind {
 #[derive(Clone, Debug)]
 pub(crate) struct InsertNode {
     pub table: TableNode,
-    pub assignments: Vec<Assignment>,
+    pub rows: Vec<Vec<Assignment>>,
+    pub conflict: Option<ConflictNode>,
     pub returning: Vec<Expression>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConflictNode {
+    pub target: Vec<&'static str>,
+    pub action: Option<ConflictAction>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ConflictAction {
+    DoNothing,
+    DoUpdate(Vec<ConflictAssignment>),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConflictAssignment {
+    pub table: &'static str,
+    pub column: &'static str,
+    pub value: ConflictValue,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ConflictValue {
+    Bound(Value),
+    Excluded {
+        table: &'static str,
+        column: &'static str,
+    },
 }
 
 #[derive(Clone, Debug)]

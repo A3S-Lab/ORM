@@ -1,7 +1,7 @@
 use a3s_orm::expression::Selection;
 use a3s_orm::{
-    count, delete_from, exists, insert_into, orm_table, select_from, update_table, OrderDirection,
-    PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
+    count, delete_from, exists, insert_into, orm_table, select_from, update_table, InsertRow,
+    OrderDirection, PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
 };
 
 orm_table! {
@@ -99,6 +99,95 @@ fn compiles_insert_update_and_delete_without_interpolating_values() {
         delete.sql,
         "delete from \"person\" where \"person\".\"manager_id\" is null returning \"person\".\"id\", \"person\".\"name\""
     );
+}
+
+#[test]
+fn compiles_multi_row_insert_and_conflict_updates() {
+    let insert = insert_into::<Person>()
+        .rows([
+            InsertRow::new()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36),
+            InsertRow::new()
+                .value(Person::id(), 2)
+                .value(Person::name(), "Grace")
+                .value(Person::age(), 40),
+        ])
+        .on_conflict(Person::id())
+        .do_update_from_excluded(Person::name())
+        .do_update(Person::age(), 41)
+        .returning(Person::id())
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        insert.sql,
+        "insert into \"person\" (\"id\", \"name\", \"age\") values ($1, $2, $3), ($4, $5, $6) on conflict (\"id\") do update set \"name\" = excluded.\"name\", \"age\" = $7 returning \"person\".\"id\""
+    );
+    assert_eq!(
+        insert.parameters,
+        vec![
+            Value::I64(1),
+            Value::String("Ada".to_owned()),
+            Value::I64(36),
+            Value::I64(2),
+            Value::String("Grace".to_owned()),
+            Value::I64(40),
+            Value::I64(41),
+        ]
+    );
+
+    let do_nothing = insert_into::<Person>()
+        .value(Person::id(), 1)
+        .on_conflict(Person::id())
+        .do_nothing()
+        .compile(&SqliteDialect)
+        .unwrap();
+    assert_eq!(
+        do_nothing.sql,
+        "insert into \"person\" (\"id\") values (?) on conflict (\"id\") do nothing"
+    );
+}
+
+#[test]
+fn rejects_invalid_insert_rows_and_unsupported_conflicts() {
+    let inconsistent = insert_into::<Person>()
+        .rows([
+            InsertRow::new()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada"),
+            InsertRow::new()
+                .value(Person::name(), "Grace")
+                .value(Person::id(), 2),
+        ])
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(inconsistent.to_string().contains("differ"));
+
+    let duplicate = insert_into::<Person>()
+        .row(
+            InsertRow::new()
+                .value(Person::id(), 1)
+                .value(Person::id(), 2),
+        )
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(duplicate.to_string().contains("more than once"));
+
+    let incomplete_conflict = insert_into::<Person>()
+        .value(Person::id(), 1)
+        .do_nothing()
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(incomplete_conflict.to_string().contains("target"));
+
+    let mysql = insert_into::<Person>()
+        .value(Person::id(), 1)
+        .on_conflict(Person::id())
+        .do_nothing()
+        .compile(&a3s_orm::MysqlDialect)
+        .unwrap_err();
+    assert!(mysql.to_string().contains("does not support on conflict"));
 }
 
 #[test]

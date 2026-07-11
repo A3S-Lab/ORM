@@ -10,6 +10,7 @@
 - `query` owns immutable statement builders, split by SQL statement kind.
 - `ast` is the internal representation shared by builders and compilers. It is not public API.
 - `compiler` turns the AST into SQL and bound parameters. `dialect` owns identifier quoting, placeholders, and feature flags.
+- `compiler/validation` enforces statement structure before SQL is emitted, including multi-row column identity and conflict ownership.
 - `decode` converts driver-neutral row values into inferred query output types, with checked numeric conversion.
 - `executor` defines driver-neutral async execution, transaction contracts, and the `Database` facade.
 - `drivers/<driver>` owns database-client adaptation, row representation, and driver-specific errors.
@@ -18,6 +19,8 @@
 The compiler never opens a connection, and drivers never need to understand typed builder state. This allows compile-only use and keeps new runtime integrations local to `drivers`.
 
 CTEs and subqueries remain AST nodes until dialect compilation. They share one compiler parameter accumulator, so PostgreSQL placeholders stay globally ordered across CTEs, outer predicates, and nested queries. CTE names, selection aliases, and function identifiers pass through the same identifier validation and quoting as schema identifiers.
+
+Multi-row inserts store rows separately in the AST. Compilation verifies identical column ordering before flattening values into the shared parameter accumulator. Conflict assignments distinguish bound values from references to the `excluded` row; neither path interpolates application data. Dialects advertise conflict support explicitly, so unsupported MySQL syntax fails rather than being approximated.
 
 ## SQLite transaction isolation
 

@@ -39,7 +39,9 @@ pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
     MigrationReport, Migrator, PreparedMigration,
 };
-pub use query::{delete_from, insert_into, select_from, update_table, Query};
+pub use query::{
+    delete_from, insert_into, select_from, update_table, ConflictTarget, InsertRow, Query,
+};
 pub use schema::{Table, TableRef};
 pub use value::{IntoSqlValue, SqlArray, Value};
 

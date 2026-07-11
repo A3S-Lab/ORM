@@ -1,8 +1,8 @@
 #![cfg(feature = "sqlite")]
 
 use a3s_orm::{
-    count, delete_from, insert_into, orm_table, select_from, update_table, Database, SelectionExt,
-    SqliteDialect, SqliteExecutor, Value,
+    count, delete_from, insert_into, orm_table, select_from, update_table, Database, InsertRow,
+    SelectionExt, SqliteDialect, SqliteExecutor, Value,
 };
 
 orm_table! {
@@ -189,4 +189,77 @@ async fn executes_cte_and_bound_subquery_parameters() {
         .unwrap()
         .rows;
     assert_eq!(grouped, vec![(36, 1_i64), (40, 1_i64)]);
+}
+
+#[tokio::test]
+async fn executes_multi_row_insert_and_upsert() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    executor
+        .execute_schema(
+            "create table person (
+                id integer primary key,
+                name text not null,
+                age integer not null,
+                nickname text
+             )",
+        )
+        .await
+        .unwrap();
+    let database = Database::new(SqliteDialect, executor);
+    let inserted = database
+        .fetch_all_as(
+            insert_into::<Person>()
+                .rows([
+                    InsertRow::new()
+                        .value(Person::id(), 1)
+                        .value(Person::name(), "Ada")
+                        .value(Person::age(), 36),
+                    InsertRow::new()
+                        .value(Person::id(), 2)
+                        .value(Person::name(), "Grace")
+                        .value(Person::age(), 40),
+                ])
+                .returning(Person::id()),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(inserted, vec![1, 2]);
+
+    database
+        .execute(
+            insert_into::<Person>()
+                .rows([
+                    InsertRow::new()
+                        .value(Person::id(), 1)
+                        .value(Person::name(), "Ada updated")
+                        .value(Person::age(), 37),
+                    InsertRow::new()
+                        .value(Person::id(), 3)
+                        .value(Person::name(), "Linus")
+                        .value(Person::age(), 55),
+                ])
+                .on_conflict(Person::id())
+                .do_update_from_excluded(Person::name())
+                .do_update_from_excluded(Person::age()),
+        )
+        .await
+        .unwrap();
+    let rows = database
+        .fetch_all_as(
+            select_from::<Person>()
+                .select((Person::id(), Person::name(), Person::age()))
+                .order_by(Person::id(), a3s_orm::OrderDirection::Asc),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        rows,
+        vec![
+            (1, "Ada updated".to_owned(), 37),
+            (2, "Grace".to_owned(), 40),
+            (3, "Linus".to_owned(), 55),
+        ]
+    );
 }
