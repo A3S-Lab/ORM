@@ -24,7 +24,7 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM" }
 Define the schema and build a query:
 
 ```rust
-use a3s_orm::{orm_table, select_from, PostgresDialect, Query};
+use a3s_orm::{orm_table, select_from, OrderDirection, PostgresDialect, Query};
 
 orm_table! {
     pub struct Person => "person" {
@@ -37,13 +37,13 @@ orm_table! {
 let query = select_from::<Person>()
     .select((Person::id(), Person::name()))
     .filter(Person::age().gte(18))
-    .order_by(Person::name().asc())
+    .order_by(Person::name(), OrderDirection::Asc)
     .limit(20);
 
 let compiled = query.compile(&PostgresDialect)?;
 assert_eq!(
     compiled.sql,
-    "SELECT \"person\".\"id\", \"person\".\"name\" FROM \"person\" WHERE \"person\".\"age\" >= $1 ORDER BY \"person\".\"name\" ASC LIMIT $2"
+    "select \"person\".\"id\", \"person\".\"name\" from \"person\" where (\"person\".\"age\" >= $1) order by \"person\".\"name\" asc limit $2"
 );
 # Ok::<(), a3s_orm::Error>(())
 ```
