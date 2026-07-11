@@ -1,0 +1,21 @@
+[package]
+name = "a3s-orm"
+version = "0.1.0"
+edition = "2021"
+description = "A type-safe, executor-neutral SQL query builder for Rust"
+license = "MIT"
+repository = "https://github.com/A3S-Lab/ORM"
+keywords = ["database", "query-builder", "sql", "postgres", "sqlite"]
+categories = ["database"]
+
+[features]
+default = ["sqlite"]
+sqlite = ["dep:tokio-rusqlite"]
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2"
+tokio-rusqlite = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
