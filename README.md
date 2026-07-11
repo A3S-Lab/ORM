@@ -92,6 +92,7 @@ The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_
 | PostgreSQL, SQLite, and MySQL SQL compilation | Yes |
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
+| SQLite busy timeout, foreign keys, and configurable journal mode | Yes |
 | Pooled PostgreSQL driver with prepared statement cache | Yes |
 | PostgreSQL UUID, JSON, temporal, Numeric, and typed arrays | Yes |
 | Cancellation-safe scoped PostgreSQL transactions | Yes |
@@ -137,6 +138,8 @@ println!("applied: {:?}", report.applied);
 
 SQLite serializes migrators with its shared connection gate and `BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock. Migration SQL and its history row commit atomically.
 
+File-backed SQLite connections default to a five-second busy timeout, foreign-key enforcement, and WAL journaling. Use `SqliteExecutor::open_with_options` to select a different `SqliteJournalMode` or policy. In-memory connections use memory journaling.
+
 ## Architecture
 
 The crate separates responsibilities so the public query API does not depend on a database client:
@@ -154,6 +157,8 @@ typed schema + expressions
 ```
 
 See [Architecture](docs/architecture.md) for module ownership and extension points.
+
+See [Production Readiness](docs/production-readiness.md) for supported deployments, guarantees, the deployment checklist, and explicit limitations.
 
 ## Status
 

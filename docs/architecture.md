@@ -31,6 +31,8 @@ Aliases are represented by a distinct table marker. The AST stores the source ta
 
 Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal execution acquires the gate for one operation; a transaction owns it from `BEGIN IMMEDIATE` through `commit` or `rollback`. Transaction statements use an internal unlocked path so they cannot deadlock themselves. Other clones wait at the gate and cannot interleave statements with the active transaction.
 
+Connection initialization is centralized in `SqliteOptions`. File databases default to WAL, a five-second busy timeout, and enabled foreign-key enforcement; in-memory databases substitute memory journaling. Options are applied before an executor is returned to its caller.
+
 `SqliteExecutor::transaction` is the recommended application API. It commits on success, rolls back operation errors, and reports rollback failure without discarding the original operation error. Dropping an incomplete transaction schedules rollback and transfers the connection gate into that cleanup task. This makes Tokio task cancellation safe while a runtime is active. Explicit transactions remain available for infrastructure code that needs manual lifetime control.
 
 Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second operation gate within its outer transaction. If its future is cancelled, cleanup retains that gate until `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT` finish, so subsequent outer-transaction statements cannot race with cleanup.

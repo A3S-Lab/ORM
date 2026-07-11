@@ -11,7 +11,7 @@ use crate::{
     CompiledQuery, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager, Value,
 };
 
-use super::{SqliteError, SqliteRow, SqliteTransaction, SqliteTransactionError};
+use super::{SqliteError, SqliteOptions, SqliteRow, SqliteTransaction, SqliteTransactionError};
 
 #[derive(Clone)]
 pub struct SqliteExecutor {
@@ -21,21 +21,48 @@ pub struct SqliteExecutor {
 
 impl SqliteExecutor {
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, SqliteError> {
-        Ok(Self {
+        Self::open_with_options(path, SqliteOptions::default()).await
+    }
+
+    pub async fn open_with_options(
+        path: impl AsRef<Path>,
+        options: SqliteOptions,
+    ) -> Result<Self, SqliteError> {
+        let executor = Self {
             connection: tokio_rusqlite::Connection::open(path).await?,
             transaction_lock: Arc::new(tokio::sync::Mutex::new(())),
-        })
+        };
+        executor.configure(options).await?;
+        Ok(executor)
     }
 
     pub async fn open_in_memory() -> Result<Self, SqliteError> {
-        Ok(Self {
+        let executor = Self {
             connection: tokio_rusqlite::Connection::open_in_memory().await?,
             transaction_lock: Arc::new(tokio::sync::Mutex::new(())),
-        })
+        };
+        executor.configure(SqliteOptions::in_memory()).await?;
+        Ok(executor)
     }
 
     pub fn connection(&self) -> &tokio_rusqlite::Connection {
         &self.connection
+    }
+
+    async fn configure(&self, options: SqliteOptions) -> Result<(), SqliteError> {
+        self.connection
+            .call(move |connection| {
+                connection.busy_timeout(options.busy_timeout)?;
+                connection.pragma_update(
+                    None,
+                    "foreign_keys",
+                    if options.foreign_keys { "ON" } else { "OFF" },
+                )?;
+                connection.pragma_update(None, "journal_mode", options.journal_mode.as_sql())?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
     }
 
     /// Run an operation inside a transaction and always complete it.

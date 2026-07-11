@@ -46,4 +46,10 @@ pub enum SqliteMigrationError {
     Driver(#[from] SqliteError),
     #[error(transparent)]
     Migration(#[from] crate::MigrationError),
+    #[error("SQLite migration {version:?} failed: {source}")]
+    Apply {
+        version: String,
+        #[source]
+        source: tokio_rusqlite::rusqlite::Error,
+    },
 }

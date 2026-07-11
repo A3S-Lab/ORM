@@ -92,7 +92,8 @@ async fn failed_migration_rolls_back_schema_and_history() {
             "create table rollback_probe (id integer); invalid sql",
         )])
         .await;
-    assert!(error.is_err());
+    let error = error.unwrap_err();
+    assert!(error.to_string().contains("001"));
 
     let database = Database::new(SqliteDialect, executor.clone());
     assert!(database

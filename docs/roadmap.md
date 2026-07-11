@@ -25,6 +25,7 @@ The project is being developed incrementally. Completed items describe implement
 - Typed window functions, frames, and set operations.
 - Explicit one/optional result cardinality and bound static raw queries.
 - Typed source and join aliases.
+- Configurable production-safe SQLite connection defaults.
 
 ## Next
 

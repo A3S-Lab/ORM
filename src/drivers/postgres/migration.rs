@@ -45,7 +45,13 @@ impl MigrationBackend for PostgresExecutor {
         let pending = pending_migrations(&applied, migrations)?;
         let mut versions = Vec::with_capacity(pending.len());
         for migration in pending {
-            transaction.batch_execute(migration.up_sql()).await?;
+            transaction
+                .batch_execute(migration.up_sql())
+                .await
+                .map_err(|source| PostgresMigrationError::Apply {
+                    version: migration.version().to_owned(),
+                    source,
+                })?;
             transaction
                 .execute(
                     "insert into a3s_orm_migrations (version, name, checksum) values ($1, $2, $3)",

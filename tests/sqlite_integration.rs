@@ -328,3 +328,39 @@ async fn executes_multi_row_insert_and_upsert() {
         ]
     );
 }
+
+#[tokio::test]
+async fn applies_safe_sqlite_connection_defaults() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    let database = Database::new(SqliteDialect, executor.clone());
+    let busy_timeout = database
+        .fetch_one_as(sql_query::<i64>("pragma busy_timeout"))
+        .await
+        .unwrap();
+    assert_eq!(busy_timeout, 5_000);
+    let foreign_keys = database
+        .fetch_one_as(sql_query::<i64>("pragma foreign_keys"))
+        .await
+        .unwrap();
+    assert_eq!(foreign_keys, 1);
+    let journal_mode = database
+        .fetch_one_as(sql_query::<String>("pragma journal_mode"))
+        .await
+        .unwrap();
+    assert_eq!(journal_mode, "memory");
+
+    executor
+        .execute_schema(
+            "create table parent (id integer primary key);
+             create table child (
+                id integer primary key,
+                parent_id integer not null references parent(id)
+             )",
+        )
+        .await
+        .unwrap();
+    let violation = executor
+        .execute_schema("insert into child (id, parent_id) values (1, 999)")
+        .await;
+    assert!(violation.is_err());
+}

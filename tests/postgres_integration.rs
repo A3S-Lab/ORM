@@ -1,5 +1,7 @@
 #![cfg(feature = "postgres")]
 
+use std::time::Duration;
+
 use a3s_orm::{
     count_all, insert_into, orm_table, row_number, select_from, Database, Executor, InsertRow,
     Migration, MigrationError, Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt,
@@ -162,7 +164,8 @@ async fn executes_typed_queries_against_postgres_pool() {
             ),
         ])
         .await;
-    assert!(failed.is_err());
+    let failed = failed.unwrap_err();
+    assert!(failed.to_string().contains("003"));
     let client = executor.pool().get().await.unwrap();
     let table: Option<String> = client
         .query_one(
@@ -349,6 +352,40 @@ async fn executes_typed_queries_against_postgres_pool() {
             (3, "third".to_owned()),
         ]
     );
+
+    let task_executor = database.executor().clone();
+    let (inserted_tx, inserted_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        task_executor
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    let query = insert_into::<UpsertRecord>()
+                        .value(UpsertRecord::id(), 4)
+                        .value(UpsertRecord::value(), "cancelled")
+                        .compile(&PostgresDialect)
+                        .unwrap();
+                    transaction.execute(&query).await.unwrap();
+                    inserted_tx.send(()).unwrap();
+                    std::future::pending::<Result<(), std::io::Error>>().await
+                })
+            })
+            .await
+    });
+    inserted_rx.await.unwrap();
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    let cancelled = tokio::time::timeout(
+        Duration::from_secs(1),
+        database.fetch_optional_as(
+            select_from::<UpsertRecord>()
+                .select(UpsertRecord::id())
+                .filter(UpsertRecord::id().eq(4)),
+        ),
+    )
+    .await
+    .expect("pool connection remained unavailable after transaction cancellation")
+    .unwrap();
+    assert_eq!(cancelled, None);
 
     let ranked = database
         .fetch_all_as(

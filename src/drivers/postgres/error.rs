@@ -54,4 +54,10 @@ pub enum PostgresMigrationError {
     Database(#[from] tokio_postgres::Error),
     #[error(transparent)]
     Migration(#[from] crate::MigrationError),
+    #[error("PostgreSQL migration {version:?} failed: {source}")]
+    Apply {
+        version: String,
+        #[source]
+        source: tokio_postgres::Error,
+    },
 }

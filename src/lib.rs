@@ -27,8 +27,8 @@ pub use drivers::postgres::{
 };
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{
-    SqliteError, SqliteExecutor, SqliteMigrationError, SqliteRow, SqliteSavepoint,
-    SqliteSavepointError, SqliteTransaction, SqliteTransactionError,
+    SqliteError, SqliteExecutor, SqliteJournalMode, SqliteMigrationError, SqliteOptions, SqliteRow,
+    SqliteSavepoint, SqliteSavepointError, SqliteTransaction, SqliteTransactionError,
 };
 pub use error::{Error, Result};
 pub use executor::{

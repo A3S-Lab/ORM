@@ -47,14 +47,27 @@ impl MigrationBackend for SqliteExecutor {
             })
             .await
             .map_err(crate::SqliteError::from)?;
-        outcome.map_err(SqliteMigrationError::Migration)
+        outcome.map_err(|error| match error {
+            MigrationFailure::Validation(error) => SqliteMigrationError::Migration(error),
+            MigrationFailure::Apply { version, source } => {
+                SqliteMigrationError::Apply { version, source }
+            }
+        })
     }
+}
+
+enum MigrationFailure {
+    Validation(crate::MigrationError),
+    Apply {
+        version: String,
+        source: rusqlite::Error,
+    },
 }
 
 fn migrate(
     connection: &rusqlite::Connection,
     migrations: &[PreparedMigration],
-) -> rusqlite::Result<Result<MigrationReport, crate::MigrationError>> {
+) -> rusqlite::Result<Result<MigrationReport, MigrationFailure>> {
     connection.execute_batch(CREATE_TABLE)?;
     let mut statement =
         connection.prepare("select version, checksum from a3s_orm_migrations order by version")?;
@@ -69,11 +82,16 @@ fn migrate(
     drop(statement);
     let pending = match pending_migrations(&applied, migrations) {
         Ok(pending) => pending,
-        Err(error) => return Ok(Err(error)),
+        Err(error) => return Ok(Err(MigrationFailure::Validation(error))),
     };
     let mut versions = Vec::with_capacity(pending.len());
     for migration in pending {
-        connection.execute_batch(migration.up_sql())?;
+        if let Err(source) = connection.execute_batch(migration.up_sql()) {
+            return Ok(Err(MigrationFailure::Apply {
+                version: migration.version().to_owned(),
+                source,
+            }));
+        }
         connection.execute(
             "insert into a3s_orm_migrations (version, name, checksum) values (?1, ?2, ?3)",
             rusqlite::params![migration.version(), migration.name(), migration.checksum()],

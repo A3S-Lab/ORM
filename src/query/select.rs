@@ -60,7 +60,12 @@ impl<T: Table, O> SelectQuery<T, O> {
         }
     }
 
-    pub fn select_all(mut self) -> SelectQuery<T, T> {
+    /// Select every column for driver-owned row access.
+    ///
+    /// The output is intentionally untyped because a table marker does not
+    /// define a Rust record decoder. Use an explicit selection with
+    /// `fetch_all_as` when typed decoding is required.
+    pub fn select_all(mut self) -> SelectQuery<T, ()> {
         self.node.selections = vec![Expression::Column {
             table: T::NAME,
             name: "*",
