@@ -22,6 +22,8 @@ Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal 
 
 `SqliteExecutor::transaction` is the recommended application API. It commits on success, rolls back operation errors, and reports rollback failure without discarding the original operation error. Dropping an incomplete transaction schedules rollback and transfers the connection gate into that cleanup task. This makes Tokio task cancellation safe while a runtime is active. Explicit transactions remain available for infrastructure code that needs manual lifetime control.
 
+Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second operation gate within its outer transaction. If its future is cancelled, cleanup retains that gate until `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT` finish, so subsequent outer-transaction statements cannot race with cleanup.
+
 ## Safety boundaries
 
 Identifiers originate from schema metadata and are validated and quoted by the dialect. Application values are represented as `Value` parameters and are never interpolated into SQL. `execute_schema` on the SQLite driver is deliberately marked as trusted SQL because DDL cannot be represented by the current typed builders.

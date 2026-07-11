@@ -22,3 +22,18 @@ where
     #[error("transaction operation failed ({operation}) and rollback failed ({rollback})")]
     OperationAndRollback { operation: E, rollback: SqliteError },
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum SqliteSavepointError<E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    #[error("could not create SQLite savepoint: {0}")]
+    Begin(#[source] SqliteError),
+    #[error("savepoint operation failed: {0}")]
+    Operation(#[source] E),
+    #[error("could not release SQLite savepoint: {0}")]
+    Release(#[source] SqliteError),
+    #[error("savepoint operation failed ({operation}) and cleanup failed ({cleanup})")]
+    OperationAndCleanup { operation: E, cleanup: SqliteError },
+}

@@ -20,7 +20,8 @@ pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, Sqlite
 pub use decode::{DecodeError, FromRow, FromValue, Row};
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{
-    SqliteError, SqliteExecutor, SqliteRow, SqliteTransaction, SqliteTransactionError,
+    SqliteError, SqliteExecutor, SqliteRow, SqliteSavepoint, SqliteSavepointError,
+    SqliteTransaction, SqliteTransactionError,
 };
 pub use error::{Error, Result};
 pub use executor::{

@@ -1,9 +1,16 @@
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use tokio::sync::OwnedMutexGuard;
 
 use crate::{ExecuteResult, Executor, QueryResult, Transaction};
 
-use super::{SqliteError, SqliteExecutor, SqliteRow};
+use super::{SqliteError, SqliteExecutor, SqliteRow, SqliteSavepoint, SqliteSavepointError};
+
+static NEXT_SAVEPOINT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// An exclusive SQLite transaction.
 ///
@@ -12,6 +19,7 @@ use super::{SqliteError, SqliteExecutor, SqliteRow};
 pub struct SqliteTransaction {
     executor: SqliteExecutor,
     guard: Option<OwnedMutexGuard<()>>,
+    operation_lock: Arc<tokio::sync::Mutex<()>>,
     completed: bool,
 }
 
@@ -20,7 +28,42 @@ impl SqliteTransaction {
         Self {
             executor,
             guard: Some(guard),
+            operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             completed: false,
+        }
+    }
+
+    /// Run an operation in a nested savepoint.
+    ///
+    /// Savepoint cleanup owns the transaction operation gate, so cancellation
+    /// cannot race with subsequent statements in the outer transaction.
+    pub async fn savepoint<T, E, F>(&self, operation: F) -> Result<T, SqliteSavepointError<E>>
+    where
+        T: Send,
+        E: std::error::Error + Send + Sync + 'static,
+        F: for<'a> FnOnce(
+            &'a SqliteSavepoint,
+        ) -> Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>,
+    {
+        let guard = self.operation_lock.clone().lock_owned().await;
+        let id = NEXT_SAVEPOINT_ID.fetch_add(1, Ordering::Relaxed);
+        let savepoint = SqliteSavepoint::begin(self.executor.clone(), guard, id)
+            .await
+            .map_err(SqliteSavepointError::Begin)?;
+        match operation(&savepoint).await {
+            Ok(value) => {
+                savepoint
+                    .release()
+                    .await
+                    .map_err(SqliteSavepointError::Release)?;
+                Ok(value)
+            }
+            Err(operation) => match savepoint.rollback().await {
+                Ok(()) => Err(SqliteSavepointError::Operation(operation)),
+                Err(cleanup) => {
+                    Err(SqliteSavepointError::OperationAndCleanup { operation, cleanup })
+                }
+            },
         }
     }
 }
@@ -31,6 +74,7 @@ impl Executor for SqliteTransaction {
     type Error = SqliteError;
 
     async fn execute(&self, query: &crate::CompiledQuery) -> Result<ExecuteResult, Self::Error> {
+        let _operation = self.operation_lock.clone().lock_owned().await;
         self.executor.execute_unlocked(query).await
     }
 
@@ -38,6 +82,7 @@ impl Executor for SqliteTransaction {
         &self,
         query: &crate::CompiledQuery,
     ) -> Result<QueryResult<Self::Row>, Self::Error> {
+        let _operation = self.operation_lock.clone().lock_owned().await;
         self.executor.fetch_all_unlocked(query).await
     }
 }
@@ -45,12 +90,14 @@ impl Executor for SqliteTransaction {
 #[async_trait]
 impl Transaction for SqliteTransaction {
     async fn commit(mut self) -> Result<(), Self::Error> {
+        let _operation = self.operation_lock.lock().await;
         self.executor.execute_control("COMMIT").await?;
         self.completed = true;
         Ok(())
     }
 
     async fn rollback(mut self) -> Result<(), Self::Error> {
+        let _operation = self.operation_lock.lock().await;
         self.executor.execute_control("ROLLBACK").await?;
         self.completed = true;
         Ok(())

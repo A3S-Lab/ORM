@@ -12,10 +12,10 @@ The project is being developed incrementally. Completed items describe implement
 - Tokio-safe SQLite execution and integration tests.
 - Typed result decoding for scalars, tuples, nullable values, and checked integers.
 - Cancellation-safe SQLite transaction scopes that exclude concurrent executor clones.
+- Nested SQLite savepoints with cancellation-safe cleanup.
 
 ## Next
 
-- Nested savepoints with the same cancellation guarantees as outer transactions.
 - Column and expression aliases.
 - Multi-row inserts and conflict handling.
 - Functions, aggregates, grouping, and having clauses.

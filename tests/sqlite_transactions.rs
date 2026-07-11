@@ -139,3 +139,68 @@ async fn aborting_scoped_transaction_rolls_back_and_releases_connection() {
         .unwrap();
     assert!(result.rows.is_empty());
 }
+
+#[tokio::test]
+async fn savepoint_releases_on_success_and_rolls_back_only_its_changes_on_error() {
+    let executor = executor().await;
+    executor
+        .transaction(|transaction| {
+            Box::pin(async move {
+                transaction.execute(&insert(1)).await.unwrap();
+                transaction
+                    .savepoint(|savepoint| {
+                        Box::pin(async move {
+                            savepoint.execute(&insert(2)).await.unwrap();
+                            Ok::<_, std::io::Error>(())
+                        })
+                    })
+                    .await
+                    .unwrap();
+                let error = transaction
+                    .savepoint(|savepoint| {
+                        Box::pin(async move {
+                            savepoint.execute(&insert(3)).await.unwrap();
+                            Err::<(), _>(std::io::Error::other("discard nested work"))
+                        })
+                    })
+                    .await
+                    .unwrap_err();
+                assert!(error.to_string().contains("discard nested work"));
+                Ok::<_, std::io::Error>(())
+            })
+        })
+        .await
+        .unwrap();
+
+    let rows = executor.fetch_all(&select_all()).await.unwrap().rows;
+    assert_eq!(rows.len(), 2);
+}
+
+#[tokio::test]
+async fn cancelled_savepoint_cleans_up_before_outer_transaction_continues() {
+    let executor = executor().await;
+    executor
+        .transaction(|transaction| {
+            Box::pin(async move {
+                let timed_out = tokio::time::timeout(
+                    Duration::from_millis(20),
+                    transaction.savepoint(|savepoint| {
+                        Box::pin(async move {
+                            savepoint.execute(&insert(1)).await.unwrap();
+                            std::future::pending::<Result<(), std::io::Error>>().await
+                        })
+                    }),
+                )
+                .await;
+                assert!(timed_out.is_err());
+
+                transaction.execute(&insert(2)).await.unwrap();
+                Ok::<_, std::io::Error>(())
+            })
+        })
+        .await
+        .unwrap();
+
+    let rows = executor.fetch_all(&select_all()).await.unwrap().rows;
+    assert_eq!(rows.len(), 1);
+}

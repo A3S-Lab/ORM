@@ -123,9 +123,10 @@ impl SqliteExecutor {
         Ok(QueryResult { rows })
     }
 
-    pub(crate) async fn execute_control(&self, sql: &'static str) -> Result<(), SqliteError> {
+    pub(crate) async fn execute_control(&self, sql: impl Into<String>) -> Result<(), SqliteError> {
+        let sql = sql.into();
         self.connection
-            .call(move |connection| connection.execute_batch(sql))
+            .call(move |connection| connection.execute_batch(&sql))
             .await?;
         Ok(())
     }

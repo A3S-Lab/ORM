@@ -84,6 +84,7 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | Non-blocking SQLite driver | Yes |
 | Typed scalar, tuple, nullable, and checked integer decoding | Yes |
 | Cancellation-safe scoped SQLite transactions | Yes |
+| Nested SQLite savepoints with cancellation cleanup | Yes |
 | CTEs, subqueries, migrations, plugins | Planned |
 | PostgreSQL and MySQL runtime drivers | Planned |
 
