@@ -13,6 +13,9 @@ The project is being developed incrementally. Completed items describe implement
 - Typed result decoding for scalars, tuples, nullable values, and checked integers.
 - Cancellation-safe SQLite transaction scopes that exclude concurrent executor clones.
 - Nested SQLite savepoints with cancellation-safe cleanup.
+- Pooled PostgreSQL execution with prepared statement caching.
+- PostgreSQL scalar/null decoding and target-aware integer parameters.
+- Cancellation-safe scoped PostgreSQL transactions.
 
 ## Next
 
@@ -21,7 +24,7 @@ The project is being developed incrementally. Completed items describe implement
 - Functions, aggregates, grouping, and having clauses.
 - Subqueries, common table expressions, and set operations.
 - Safe raw SQL fragments with bound parameters.
-- PostgreSQL runtime driver.
+- Broader PostgreSQL types, including UUID, JSON, temporal, numeric, and arrays.
 
 ## Later
 

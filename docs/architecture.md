@@ -24,6 +24,12 @@ Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal 
 
 Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second operation gate within its outer transaction. If its future is cancelled, cleanup retains that gate until `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT` finish, so subsequent outer-transaction statements cannot race with cleanup.
 
+## PostgreSQL execution
+
+`PostgresExecutor` owns a Deadpool connection pool and uses its per-connection prepared-statement cache. Parameters are encoded after PostgreSQL has inferred their target types, which permits checked conversion of the common Rust integer representation into `smallint`, `integer`, or `bigint`. Rows are converted into the same driver-neutral values used by typed decoding.
+
+`from_pool` accepts pools constructed with deployment-specific TLS connectors. `connect_no_tls` is a convenience for local development and explicitly does not choose a production TLS policy. Transactions retain one pooled connection from `BEGIN` through completion; cancellation cleanup retains that connection until rollback finishes.
+
 ## Safety boundaries
 
 Identifiers originate from schema metadata and are validated and quoted by the dialect. Application values are represented as `Value` parameters and are never interpolated into SQL. `execute_schema` on the SQLite driver is deliberately marked as trusted SQL because DDL cannot be represented by the current typed builders.

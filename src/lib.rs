@@ -7,7 +7,6 @@
 mod ast;
 pub mod compiler;
 pub mod decode;
-#[cfg(feature = "sqlite")]
 pub mod drivers;
 pub mod error;
 pub mod executor;
@@ -18,6 +17,10 @@ pub mod value;
 
 pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 pub use decode::{DecodeError, FromRow, FromValue, Row};
+#[cfg(feature = "postgres")]
+pub use drivers::postgres::{
+    PostgresError, PostgresExecutor, PostgresRow, PostgresTransaction, PostgresTransactionError,
+};
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{
     SqliteError, SqliteExecutor, SqliteRow, SqliteSavepoint, SqliteSavepointError,

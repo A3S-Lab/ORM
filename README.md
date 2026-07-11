@@ -82,11 +82,13 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | PostgreSQL, SQLite, and MySQL SQL compilation | Yes |
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
+| Pooled PostgreSQL driver with prepared statement cache | Yes |
+| Cancellation-safe scoped PostgreSQL transactions | Yes |
 | Typed scalar, tuple, nullable, and checked integer decoding | Yes |
 | Cancellation-safe scoped SQLite transactions | Yes |
 | Nested SQLite savepoints with cancellation cleanup | Yes |
 | CTEs, subqueries, migrations, plugins | Planned |
-| PostgreSQL and MySQL runtime drivers | Planned |
+| MySQL runtime driver | Planned |
 
 MySQL compilation intentionally rejects `RETURNING`, which that dialect does not support. Dialect support does not imply that a runtime driver is bundled.
 
@@ -110,7 +112,7 @@ See [Architecture](docs/architecture.md) for module ownership and extension poin
 
 ## Status
 
-This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes cancellation-safe transaction scopes, composable expressions and subqueries, migrations, plugins, and production database drivers. See [Roadmap](docs/roadmap.md).
+This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes composable expressions and subqueries, migrations, plugins, broader PostgreSQL type support, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
 
 ## Development
 
