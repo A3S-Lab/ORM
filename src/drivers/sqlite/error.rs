@@ -37,3 +37,11 @@ where
     #[error("savepoint operation failed ({operation}) and cleanup failed ({cleanup})")]
     OperationAndCleanup { operation: E, cleanup: SqliteError },
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum SqliteMigrationError {
+    #[error(transparent)]
+    Driver(#[from] SqliteError),
+    #[error(transparent)]
+    Migration(#[from] crate::MigrationError),
+}

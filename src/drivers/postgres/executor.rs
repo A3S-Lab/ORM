@@ -13,7 +13,7 @@ use super::{PostgresError, PostgresRow, PostgresTransaction, PostgresTransaction
 
 #[derive(Clone)]
 pub struct PostgresExecutor {
-    pool: Pool,
+    pub(super) pool: Pool,
 }
 
 impl PostgresExecutor {

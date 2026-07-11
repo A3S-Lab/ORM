@@ -35,3 +35,13 @@ where
         rollback: PostgresError,
     },
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum PostgresMigrationError {
+    #[error(transparent)]
+    Driver(#[from] PostgresError),
+    #[error(transparent)]
+    Database(#[from] tokio_postgres::Error),
+    #[error(transparent)]
+    Migration(#[from] crate::MigrationError),
+}

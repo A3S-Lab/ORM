@@ -11,6 +11,7 @@ pub mod drivers;
 pub mod error;
 pub mod executor;
 pub mod expression;
+pub mod migration;
 pub mod query;
 pub mod schema;
 pub mod value;
@@ -19,18 +20,23 @@ pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, Sqlite
 pub use decode::{DecodeError, FromRow, FromValue, Row};
 #[cfg(feature = "postgres")]
 pub use drivers::postgres::{
-    PostgresError, PostgresExecutor, PostgresRow, PostgresTransaction, PostgresTransactionError,
+    PostgresError, PostgresExecutor, PostgresMigrationError, PostgresRow, PostgresTransaction,
+    PostgresTransactionError,
 };
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{
-    SqliteError, SqliteExecutor, SqliteRow, SqliteSavepoint, SqliteSavepointError,
-    SqliteTransaction, SqliteTransactionError,
+    SqliteError, SqliteExecutor, SqliteMigrationError, SqliteRow, SqliteSavepoint,
+    SqliteSavepointError, SqliteTransaction, SqliteTransactionError,
 };
 pub use error::{Error, Result};
 pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
 pub use expression::{Column, Expression, OrderDirection};
+pub use migration::{
+    pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
+    MigrationReport, Migrator, PreparedMigration,
+};
 pub use query::{delete_from, insert_into, select_from, update_table, Query};
 pub use schema::{Table, TableRef};
 pub use value::{IntoSqlValue, Value};

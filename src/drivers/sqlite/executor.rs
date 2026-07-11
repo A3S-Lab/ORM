@@ -15,8 +15,8 @@ use super::{SqliteError, SqliteRow, SqliteTransaction, SqliteTransactionError};
 
 #[derive(Clone)]
 pub struct SqliteExecutor {
-    connection: tokio_rusqlite::Connection,
-    transaction_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(super) connection: tokio_rusqlite::Connection,
+    pub(super) transaction_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl SqliteExecutor {

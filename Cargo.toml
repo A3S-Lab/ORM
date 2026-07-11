@@ -17,6 +17,7 @@ sqlite = ["dep:tokio", "dep:tokio-rusqlite"]
 async-trait = "0.1"
 bytes = { version = "1", optional = true }
 deadpool-postgres = { version = "0.14", optional = true }
+sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["sync"], optional = true }
 tokio-postgres = { version = "0.7", optional = true }

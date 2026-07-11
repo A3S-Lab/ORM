@@ -87,10 +87,34 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | Typed scalar, tuple, nullable, and checked integer decoding | Yes |
 | Cancellation-safe scoped SQLite transactions | Yes |
 | Nested SQLite savepoints with cancellation cleanup | Yes |
-| CTEs, subqueries, migrations, plugins | Planned |
+| Locked, checksummed SQLite and PostgreSQL migrations | Yes |
+| CTEs, subqueries, plugins | Planned |
 | MySQL runtime driver | Planned |
 
 MySQL compilation intentionally rejects `RETURNING`, which that dialect does not support. Dialect support does not imply that a runtime driver is bundled.
+
+## Migrations
+
+Migrations are sorted by version, checksummed with SHA-256, and recorded in `a3s_orm_migrations`. Re-running an unchanged set is a no-op; changing or removing an applied migration is an error.
+
+```rust,no_run
+use a3s_orm::{Migration, Migrator, SqliteExecutor};
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let executor = SqliteExecutor::open("app.db").await?;
+let report = Migrator::new(executor)
+    .run([Migration::new(
+        "001",
+        "create people",
+        "create table person (id integer primary key, name text not null)",
+    )])
+    .await?;
+println!("applied: {:?}", report.applied);
+# Ok(())
+# }
+```
+
+SQLite serializes migrators with its shared connection gate and `BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock. Migration SQL and its history row commit atomically.
 
 ## Architecture
 

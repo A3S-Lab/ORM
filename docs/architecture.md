@@ -30,6 +30,12 @@ Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second opera
 
 `from_pool` accepts pools constructed with deployment-specific TLS connectors. `connect_no_tls` is a convenience for local development and explicitly does not choose a production TLS policy. Transactions retain one pooled connection from `BEGIN` through completion; cancellation cleanup retains that connection until rollback finishes.
 
+## Migrations
+
+The `migration` module validates definitions, sorts versions deterministically, and computes SHA-256 checksums before invoking a backend. The backend contract performs reconciliation and execution as one locked operation.
+
+SQLite uses the executor's shared connection gate plus `BEGIN IMMEDIATE`. PostgreSQL uses `pg_advisory_xact_lock` on the same transaction that executes migrations. Both backends create the history table, compare every applied checksum, execute pending SQL, and insert history rows within one transaction. Database errors therefore cannot leave schema changes recorded only partially.
+
 ## Safety boundaries
 
 Identifiers originate from schema metadata and are validated and quoted by the dialect. Application values are represented as `Value` parameters and are never interpolated into SQL. `execute_schema` on the SQLite driver is deliberately marked as trusted SQL because DDL cannot be represented by the current typed builders.

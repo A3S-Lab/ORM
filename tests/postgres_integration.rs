@@ -1,8 +1,8 @@
 #![cfg(feature = "postgres")]
 
 use a3s_orm::{
-    insert_into, orm_table, select_from, Database, Executor, PostgresDialect, PostgresExecutor,
-    Query,
+    insert_into, orm_table, select_from, Database, Executor, Migration, MigrationError, Migrator,
+    PostgresDialect, PostgresExecutor, Query,
 };
 
 orm_table! {
@@ -50,6 +50,9 @@ async fn executes_typed_queries_against_postgres_pool() {
     client
         .batch_execute(
             "drop table if exists a3s_orm_metric;
+             drop table if exists a3s_orm_migration_probe;
+             drop table if exists a3s_orm_rollback_probe;
+             drop table if exists a3s_orm_migrations;
              create table a3s_orm_metric (
                 id bigint primary key,
                 small_value smallint not null,
@@ -64,6 +67,66 @@ async fn executes_typed_queries_against_postgres_pool() {
         )
         .await
         .unwrap();
+    drop(client);
+
+    let migration_set = || {
+        vec![
+            Migration::new(
+                "001",
+                "create migration probe",
+                "create table a3s_orm_migration_probe (id bigint primary key)",
+            ),
+            Migration::new(
+                "002",
+                "seed migration probe",
+                "insert into a3s_orm_migration_probe (id) values (1)",
+            ),
+        ]
+    };
+    let left = Migrator::new(executor.clone());
+    let right = Migrator::new(executor.clone());
+    let (left, right) = tokio::join!(left.run(migration_set()), right.run(migration_set()));
+    assert_eq!(
+        left.unwrap().applied.len() + right.unwrap().applied.len(),
+        2
+    );
+
+    let drift = Migrator::new(executor.clone())
+        .run([
+            Migration::new("001", "changed", "select 1"),
+            migration_set().remove(1),
+        ])
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        drift,
+        a3s_orm::migration::MigrationRunError::Backend(a3s_orm::PostgresMigrationError::Migration(
+            MigrationError::ChecksumMismatch { .. }
+        ))
+    ));
+
+    let failed = Migrator::new(executor.clone())
+        .run([
+            migration_set().remove(0),
+            migration_set().remove(1),
+            Migration::new(
+                "003",
+                "broken migration",
+                "create table a3s_orm_rollback_probe (id bigint); invalid sql",
+            ),
+        ])
+        .await;
+    assert!(failed.is_err());
+    let client = executor.pool().get().await.unwrap();
+    let table: Option<String> = client
+        .query_one(
+            "select to_regclass('public.a3s_orm_rollback_probe')::text",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(table.is_none());
     drop(client);
 
     let database = Database::new(PostgresDialect, executor);

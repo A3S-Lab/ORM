@@ -16,6 +16,8 @@ The project is being developed incrementally. Completed items describe implement
 - Pooled PostgreSQL execution with prepared statement caching.
 - PostgreSQL scalar/null decoding and target-aware integer parameters.
 - Cancellation-safe scoped PostgreSQL transactions.
+- Deterministic SHA-256 migration validation and drift detection.
+- Atomic, concurrency-locked SQLite and PostgreSQL migration backends.
 
 ## Next
 
@@ -28,7 +30,7 @@ The project is being developed incrementally. Completed items describe implement
 
 ## Later
 
-- Schema and migration APIs with migration locking.
+- Typed schema-definition builders.
 - Query transformation plugins.
 - MySQL and additional runtime drivers.
 - Compile-fail coverage for schema misuse.
