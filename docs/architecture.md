@@ -31,6 +31,8 @@ Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second opera
 
 `PostgresExecutor` owns a Deadpool connection pool and uses its per-connection prepared-statement cache. Parameters are encoded after PostgreSQL has inferred their target types, which permits checked conversion of the common Rust integer representation into `smallint`, `integer`, or `bigint`. Rows are converted into the same driver-neutral values used by typed decoding.
 
+Extended values remain explicit variants across the entire path: UUID, JSON, date/time, timestamp, timestamp with time zone, Decimal, and arrays are never converted to display strings by the PostgreSQL driver. `SqlArray<T>` separates SQL arrays from the `Vec<u8>` bytea representation. Array parameters are converted against the server-inferred element type with indexed conversion errors, and nullable array elements remain nullable during round trips.
+
 `from_pool` accepts pools constructed with deployment-specific TLS connectors. `connect_no_tls` is a convenience for local development and explicitly does not choose a production TLS policy. Transactions retain one pooled connection from `BEGIN` through completion; cancellation cleanup retains that connection until rollback finishes.
 
 ## Migrations

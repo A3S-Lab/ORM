@@ -177,6 +177,21 @@ fn value_to_sqlite(value: &Value) -> Result<SqliteValue, SqliteError> {
         Value::F64(value) => SqliteValue::Real(*value),
         Value::String(value) => SqliteValue::Text(value.clone()),
         Value::Bytes(value) => SqliteValue::Blob(value.clone()),
+        Value::Array(_) => return Err(SqliteError::UnsupportedParameter("array")),
+        #[cfg(feature = "uuid")]
+        Value::Uuid(value) => SqliteValue::Text(value.to_string()),
+        #[cfg(feature = "json")]
+        Value::Json(value) => SqliteValue::Text(value.to_string()),
+        #[cfg(feature = "chrono")]
+        Value::Date(value) => SqliteValue::Text(value.to_string()),
+        #[cfg(feature = "chrono")]
+        Value::Time(value) => SqliteValue::Text(value.to_string()),
+        #[cfg(feature = "chrono")]
+        Value::DateTime(value) => SqliteValue::Text(value.to_string()),
+        #[cfg(feature = "chrono")]
+        Value::DateTimeUtc(value) => SqliteValue::Text(value.to_rfc3339()),
+        #[cfg(feature = "decimal")]
+        Value::Decimal(value) => SqliteValue::Text(value.to_string()),
     })
 }
 

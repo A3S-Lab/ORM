@@ -20,13 +20,14 @@ The project is being developed incrementally. Completed items describe implement
 - Atomic, concurrency-locked SQLite and PostgreSQL migration backends.
 - Typed CTEs, scalar and `IN` subqueries, and correlated `EXISTS`.
 - Selection aliases, basic aggregates, grouping, and having clauses.
+- PostgreSQL UUID, JSON/JSONB, temporal, Numeric, and nullable array round trips.
 
 ## Next
 
 - Multi-row inserts and conflict handling.
 - Window functions and set operations.
 - Safe raw SQL fragments with bound parameters.
-- Broader PostgreSQL types, including UUID, JSON, temporal, numeric, and arrays.
+- PostgreSQL enum, range, network, and custom-domain codecs.
 
 ## Later
 

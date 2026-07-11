@@ -51,7 +51,113 @@ fn encode_value(value: &Value, ty: &Type) -> Result<Box<dyn ToSql + Sync + Send>
         Value::F64(value) => Box::new(*value),
         Value::String(value) => Box::new(value.clone()),
         Value::Bytes(value) => Box::new(value.clone()),
+        Value::Array(values) => encode_array(values, ty)?,
+        Value::Uuid(value) => Box::new(*value),
+        Value::Json(value) => Box::new(value.clone()),
+        Value::Date(value) => Box::new(*value),
+        Value::Time(value) => Box::new(*value),
+        Value::DateTime(value) => Box::new(*value),
+        Value::DateTimeUtc(value) => Box::new(*value),
+        Value::Decimal(value) => Box::new(*value),
     })
+}
+
+fn encode_array(
+    values: &[Value],
+    ty: &Type,
+) -> Result<Box<dyn ToSql + Sync + Send>, PostgresError> {
+    Ok(match *ty {
+        Type::BOOL_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::Bool(value) => Ok(*value),
+            _ => Err(array_type(value, "boolean")),
+        })?),
+        Type::INT2_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::I64(value) => i16::try_from(*value).map_err(|_| overflow(*value, "smallint")),
+            Value::U64(value) => i16::try_from(*value).map_err(|_| overflow(*value, "smallint")),
+            _ => Err(array_type(value, "smallint")),
+        })?),
+        Type::INT4_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::I64(value) => i32::try_from(*value).map_err(|_| overflow(*value, "integer")),
+            Value::U64(value) => i32::try_from(*value).map_err(|_| overflow(*value, "integer")),
+            _ => Err(array_type(value, "integer")),
+        })?),
+        Type::INT8_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::I64(value) => Ok(*value),
+            Value::U64(value) => i64::try_from(*value).map_err(|_| overflow(*value, "bigint")),
+            _ => Err(array_type(value, "bigint")),
+        })?),
+        Type::FLOAT4_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::F64(value) => Ok(*value as f32),
+            _ => Err(array_type(value, "real")),
+        })?),
+        Type::FLOAT8_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::F64(value) => Ok(*value),
+            _ => Err(array_type(value, "double precision")),
+        })?),
+        Type::TEXT_ARRAY | Type::VARCHAR_ARRAY | Type::BPCHAR_ARRAY | Type::NAME_ARRAY => {
+            Box::new(array_values(values, |value| match value {
+                Value::String(value) => Ok(value.clone()),
+                _ => Err(array_type(value, "text")),
+            })?)
+        }
+        Type::UUID_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::Uuid(value) => Ok(*value),
+            _ => Err(array_type(value, "uuid")),
+        })?),
+        Type::JSON_ARRAY | Type::JSONB_ARRAY => {
+            Box::new(array_values(values, |value| match value {
+                Value::Json(value) => Ok(value.clone()),
+                _ => Err(array_type(value, "json")),
+            })?)
+        }
+        Type::DATE_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::Date(value) => Ok(*value),
+            _ => Err(array_type(value, "date")),
+        })?),
+        Type::TIME_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::Time(value) => Ok(*value),
+            _ => Err(array_type(value, "time")),
+        })?),
+        Type::TIMESTAMP_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::DateTime(value) => Ok(*value),
+            _ => Err(array_type(value, "timestamp")),
+        })?),
+        Type::TIMESTAMPTZ_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::DateTimeUtc(value) => Ok(*value),
+            _ => Err(array_type(value, "timestamp with time zone")),
+        })?),
+        Type::NUMERIC_ARRAY => Box::new(array_values(values, |value| match value {
+            Value::Decimal(value) => Ok(*value),
+            _ => Err(array_type(value, "numeric")),
+        })?),
+        _ => return Err(PostgresError::UnsupportedType(ty.to_string())),
+    })
+}
+
+fn array_values<T>(
+    values: &[Value],
+    convert: impl Fn(&Value) -> Result<T, PostgresError>,
+) -> Result<Vec<Option<T>>, PostgresError> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            Value::Null => Ok(None),
+            value => convert(value)
+                .map(Some)
+                .map_err(|source| PostgresError::ArrayElement {
+                    index,
+                    source: Box::new(source),
+                }),
+        })
+        .collect()
+}
+
+fn array_type(value: &Value, target: &'static str) -> PostgresError {
+    PostgresError::ArrayElementType {
+        actual: value.kind(),
+        target,
+    }
 }
 
 fn encode_i64(value: i64, ty: &Type) -> Result<Box<dyn ToSql + Sync + Send>, PostgresError> {

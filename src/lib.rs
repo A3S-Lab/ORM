@@ -41,7 +41,7 @@ pub use migration::{
 };
 pub use query::{delete_from, insert_into, select_from, update_table, Query};
 pub use schema::{Table, TableRef};
-pub use value::{IntoSqlValue, Value};
+pub use value::{IntoSqlValue, SqlArray, Value};
 
 /// Define a typed table marker and its columns.
 ///

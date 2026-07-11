@@ -71,6 +71,14 @@ Disable the default SQLite driver for compile-only or custom-driver use:
 a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 ```
 
+Enable the PostgreSQL runtime and its extended types:
+
+```toml
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false, features = ["postgres"] }
+```
+
+The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_decimal::Decimal`, and `SqlArray<T>`. Arrays use a dedicated wrapper so `Vec<u8>` continues to mean `bytea` rather than `smallint[]`.
+
 ## Current capabilities
 
 | Area | Support |
@@ -83,6 +91,7 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
 | Pooled PostgreSQL driver with prepared statement cache | Yes |
+| PostgreSQL UUID, JSON, temporal, Numeric, and typed arrays | Yes |
 | Cancellation-safe scoped PostgreSQL transactions | Yes |
 | Typed scalar, tuple, nullable, and checked integer decoding | Yes |
 | Cancellation-safe scoped SQLite transactions | Yes |
@@ -138,7 +147,7 @@ See [Architecture](docs/architecture.md) for module ownership and extension poin
 
 ## Status
 
-This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes window functions, set operations, plugins, broader PostgreSQL type support, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
+This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes multi-row inserts, conflict handling, window functions, set operations, plugins, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
 
 ## Development
 

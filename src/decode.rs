@@ -12,6 +12,12 @@ pub enum DecodeError {
     },
     #[error("integer at column {index} is outside the range of {target}")]
     IntegerOverflow { index: usize, target: &'static str },
+    #[error("cannot decode array element {element} at column {index}: {source}")]
+    ArrayElement {
+        index: usize,
+        element: usize,
+        source: Box<DecodeError>,
+    },
 }
 
 pub trait Row {
@@ -147,6 +153,57 @@ impl FromValue for Vec<u8> {
         }
     }
 }
+
+impl<T: FromValue> FromValue for crate::SqlArray<T> {
+    const EXPECTED: &'static str = "array";
+
+    fn from_value(value: &Value, index: usize) -> Result<Self, DecodeError> {
+        let Value::Array(values) = value else {
+            return Err(mismatch::<Self>(value, index));
+        };
+        values
+            .iter()
+            .enumerate()
+            .map(|(element, value)| {
+                T::from_value(value, index).map_err(|source| DecodeError::ArrayElement {
+                    index,
+                    element,
+                    source: Box::new(source),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(crate::SqlArray)
+    }
+}
+
+macro_rules! direct_decoder {
+    ($feature:literal, $type:ty, $variant:ident, $expected:literal) => {
+        #[cfg(feature = $feature)]
+        impl FromValue for $type {
+            const EXPECTED: &'static str = $expected;
+
+            fn from_value(value: &Value, index: usize) -> Result<Self, DecodeError> {
+                match value {
+                    Value::$variant(value) => Ok(value.clone()),
+                    _ => Err(mismatch::<Self>(value, index)),
+                }
+            }
+        }
+    };
+}
+
+direct_decoder!("uuid", uuid::Uuid, Uuid, "uuid");
+direct_decoder!("json", serde_json::Value, Json, "json");
+direct_decoder!("chrono", chrono::NaiveDate, Date, "date");
+direct_decoder!("chrono", chrono::NaiveTime, Time, "time");
+direct_decoder!("chrono", chrono::NaiveDateTime, DateTime, "timestamp");
+direct_decoder!(
+    "chrono",
+    chrono::DateTime<chrono::Utc>,
+    DateTimeUtc,
+    "timestamp with time zone"
+);
+direct_decoder!("decimal", rust_decimal::Decimal, Decimal, "decimal");
 
 impl<T: FromValue> FromValue for Option<T> {
     const EXPECTED: &'static str = T::EXPECTED;

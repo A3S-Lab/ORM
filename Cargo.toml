@@ -10,18 +10,43 @@ categories = ["database"]
 
 [features]
 default = ["sqlite"]
-postgres = ["dep:bytes", "dep:deadpool-postgres", "dep:tokio", "dep:tokio-postgres"]
+chrono = ["dep:chrono"]
+decimal = ["dep:rust_decimal"]
+json = ["dep:serde_json"]
+postgres = [
+    "chrono",
+    "decimal",
+    "dep:bytes",
+    "dep:deadpool-postgres",
+    "dep:tokio",
+    "dep:tokio-postgres",
+    "json",
+    "uuid",
+]
 sqlite = ["dep:tokio", "dep:tokio-rusqlite"]
+uuid = ["dep:uuid"]
 
 [dependencies]
 async-trait = "0.1"
 bytes = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true }
 deadpool-postgres = { version = "0.14", optional = true }
+rust_decimal = { version = "1", default-features = false, features = [
+    "db-tokio-postgres",
+    "std",
+], optional = true }
+serde_json = { version = "1", optional = true }
 sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["sync"], optional = true }
-tokio-postgres = { version = "0.7", optional = true }
+tokio-postgres = { version = "0.7", features = [
+    "array-impls",
+    "with-chrono-0_4",
+    "with-serde_json-1",
+    "with-uuid-1",
+], optional = true }
 tokio-rusqlite = { version = "0.7", optional = true }
+uuid = { version = "1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

@@ -14,6 +14,16 @@ pub enum PostgresError {
     ParameterCount { values: usize, parameters: usize },
     #[error("PostgreSQL returned unsupported column type {0}")]
     UnsupportedType(String),
+    #[error("cannot encode {actual} as an element of PostgreSQL {target}[]")]
+    ArrayElementType {
+        actual: &'static str,
+        target: &'static str,
+    },
+    #[error("cannot encode PostgreSQL array element {index}: {source}")]
+    ArrayElement {
+        index: usize,
+        source: Box<PostgresError>,
+    },
     #[error("PostgreSQL transaction no longer owns its pooled connection")]
     TransactionClosed,
 }

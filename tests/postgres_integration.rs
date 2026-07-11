@@ -2,7 +2,7 @@
 
 use a3s_orm::{
     count_all, insert_into, orm_table, select_from, Database, Executor, Migration, MigrationError,
-    Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt,
+    Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt, SqlArray,
 };
 
 orm_table! {
@@ -16,6 +16,20 @@ orm_table! {
         label: String => "label",
         payload: Vec<u8> => "payload",
         note: Option<String> => "note",
+    }
+}
+
+orm_table! {
+    struct ExtendedValue => "a3s_orm_extended_value" {
+        id: uuid::Uuid => "id",
+        metadata: serde_json::Value => "metadata",
+        event_date: chrono::NaiveDate => "event_date",
+        event_time: chrono::NaiveTime => "event_time",
+        created_at: chrono::NaiveDateTime => "created_at",
+        observed_at: chrono::DateTime<chrono::Utc> => "observed_at",
+        amount: rust_decimal::Decimal => "amount",
+        tags: SqlArray<String> => "tags",
+        scores: SqlArray<Option<i32>> => "scores",
     }
 }
 
@@ -57,6 +71,7 @@ async fn executes_typed_queries_against_postgres_pool() {
     client
         .batch_execute(
             "drop table if exists a3s_orm_metric;
+             drop table if exists a3s_orm_extended_value;
              drop table if exists a3s_orm_migration_probe;
              drop table if exists a3s_orm_rollback_probe;
              drop table if exists a3s_orm_migrations;
@@ -70,6 +85,17 @@ async fn executes_typed_queries_against_postgres_pool() {
                 label text not null,
                 payload bytea not null,
                 note text
+             );
+             create table a3s_orm_extended_value (
+                id uuid primary key,
+                metadata jsonb not null,
+                event_date date not null,
+                event_time time not null,
+                created_at timestamp not null,
+                observed_at timestamptz not null,
+                amount numeric not null,
+                tags text[] not null,
+                scores integer[] not null
              )",
         )
         .await
@@ -195,6 +221,74 @@ async fn executes_typed_queries_against_postgres_pool() {
         .unwrap()
         .rows;
     assert_eq!(total, vec![1_i64]);
+
+    let extended_id = uuid::Uuid::parse_str("018f3f56-8d4a-7c2a-9f13-5ab3d245d701").unwrap();
+    let metadata = serde_json::json!({"kind": "production", "attempt": 2});
+    let event_date = chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+    let event_time = chrono::NaiveTime::from_hms_opt(14, 30, 45).unwrap();
+    let created_at = event_date.and_time(event_time);
+    let observed_at = created_at.and_utc();
+    let amount = rust_decimal::Decimal::new(123456, 3);
+    database
+        .execute(
+            insert_into::<ExtendedValue>()
+                .value(ExtendedValue::id(), extended_id)
+                .value(ExtendedValue::metadata(), metadata.clone())
+                .value(ExtendedValue::event_date(), event_date)
+                .value(ExtendedValue::event_time(), event_time)
+                .value(ExtendedValue::created_at(), created_at)
+                .value(ExtendedValue::observed_at(), observed_at)
+                .value(ExtendedValue::amount(), amount)
+                .value(
+                    ExtendedValue::tags(),
+                    SqlArray::from(vec!["rust".to_owned(), "postgres".to_owned()]),
+                )
+                .value(
+                    ExtendedValue::scores(),
+                    SqlArray::from(vec![Some(10), None, Some(30)]),
+                ),
+        )
+        .await
+        .unwrap();
+    let scalar_values = database
+        .fetch_all_as(select_from::<ExtendedValue>().select((
+            ExtendedValue::id(),
+            ExtendedValue::metadata(),
+            ExtendedValue::event_date(),
+            ExtendedValue::event_time(),
+            ExtendedValue::created_at(),
+            ExtendedValue::observed_at(),
+            ExtendedValue::amount(),
+        )))
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        scalar_values,
+        vec![(
+            extended_id,
+            metadata,
+            event_date,
+            event_time,
+            created_at,
+            observed_at,
+            amount,
+        )]
+    );
+    let array_values = database
+        .fetch_all_as(
+            select_from::<ExtendedValue>().select((ExtendedValue::tags(), ExtendedValue::scores())),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        array_values,
+        vec![(
+            SqlArray::from(vec!["rust".to_owned(), "postgres".to_owned()]),
+            SqlArray::from(vec![Some(10), None, Some(30)]),
+        )]
+    );
 
     let error = database
         .execute(insert_into::<NarrowMetric>().value(NarrowMetric::small_value(), i64::MAX))

@@ -6,6 +6,8 @@ pub enum SqliteError {
     Async(#[from] tokio_rusqlite::Error),
     #[error("unsigned integer {0} is too large for SQLite")]
     UnsignedOverflow(u64),
+    #[error("SQLite does not support bound {0} values")]
+    UnsupportedParameter(&'static str),
 }
 
 #[derive(Debug, thiserror::Error)]
