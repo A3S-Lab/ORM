@@ -4,6 +4,10 @@ pub enum Error {
     InvalidIdentifier(String),
     #[error("query requires at least one selected expression")]
     EmptySelection,
+    #[error("scalar subquery requires exactly one selected expression, found {0}")]
+    InvalidScalarSubquery(usize),
+    #[error("duplicate common table expression name: {0:?}")]
+    DuplicateCte(String),
     #[error("insert query requires at least one value")]
     EmptyInsert,
     #[error("update query requires at least one assignment")]

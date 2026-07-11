@@ -18,13 +18,13 @@ The project is being developed incrementally. Completed items describe implement
 - Cancellation-safe scoped PostgreSQL transactions.
 - Deterministic SHA-256 migration validation and drift detection.
 - Atomic, concurrency-locked SQLite and PostgreSQL migration backends.
+- Typed CTEs, scalar and `IN` subqueries, and correlated `EXISTS`.
+- Selection aliases, basic aggregates, grouping, and having clauses.
 
 ## Next
 
-- Column and expression aliases.
 - Multi-row inserts and conflict handling.
-- Functions, aggregates, grouping, and having clauses.
-- Subqueries, common table expressions, and set operations.
+- Window functions and set operations.
 - Safe raw SQL fragments with bound parameters.
 - Broader PostgreSQL types, including UUID, JSON, temporal, numeric, and arrays.
 

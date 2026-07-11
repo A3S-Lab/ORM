@@ -1,8 +1,10 @@
+mod cte;
 mod delete;
 mod insert;
 mod select;
 mod update;
 
+pub use cte::Cte;
 pub use delete::{delete_from, DeleteQuery};
 pub use insert::{insert_into, InsertQuery};
 pub use select::{select_from, SelectQuery};

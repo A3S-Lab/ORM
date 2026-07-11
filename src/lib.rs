@@ -11,6 +11,7 @@ pub mod drivers;
 pub mod error;
 pub mod executor;
 pub mod expression;
+pub mod function;
 pub mod migration;
 pub mod query;
 pub mod schema;
@@ -32,7 +33,8 @@ pub use error::{Error, Result};
 pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
-pub use expression::{Column, Expression, OrderDirection};
+pub use expression::{exists, Column, Expression, OrderDirection, SelectionExt};
+pub use function::{count, count_all, max, min, TypedExpression};
 pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
     MigrationReport, Migrator, PreparedMigration,

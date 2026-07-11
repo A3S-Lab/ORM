@@ -9,14 +9,23 @@ pub(crate) struct TableNode {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SelectNode {
+    pub ctes: Vec<CteNode>,
     pub from: TableNode,
     pub selections: Vec<Expression>,
     pub joins: Vec<JoinNode>,
     pub filter: Option<Expression>,
+    pub group_by: Vec<Expression>,
+    pub having: Option<Expression>,
     pub order_by: Vec<(Expression, OrderDirection)>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     pub distinct: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CteNode {
+    pub name: &'static str,
+    pub query: Box<SelectNode>,
 }
 
 #[derive(Clone, Debug)]

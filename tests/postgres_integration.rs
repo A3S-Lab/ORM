@@ -1,8 +1,8 @@
 #![cfg(feature = "postgres")]
 
 use a3s_orm::{
-    insert_into, orm_table, select_from, Database, Executor, Migration, MigrationError, Migrator,
-    PostgresDialect, PostgresExecutor, Query,
+    count_all, insert_into, orm_table, select_from, Database, Executor, Migration, MigrationError,
+    Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt,
 };
 
 orm_table! {
@@ -37,6 +37,13 @@ fn insert_metric(id: i64, label: &str) -> a3s_orm::CompiledQuery {
 orm_table! {
     struct NarrowMetric => "a3s_orm_metric" {
         small_value: i64 => "small_value",
+    }
+}
+
+orm_table! {
+    struct SelectedMetric => "selected_metric" {
+        id: i64 => "id",
+        label: String => "label",
     }
 }
 
@@ -162,6 +169,32 @@ async fn executes_typed_queries_against_postgres_pool() {
         rows,
         vec![(1_i64, 12_i16, 34_i32, true, "production".to_owned(), None)]
     );
+
+    let selected = select_from::<Metric>()
+        .select((Metric::id(), Metric::label()))
+        .filter(Metric::count().gte(30))
+        .as_cte::<SelectedMetric>();
+    let eligible = select_from::<Metric>()
+        .select(Metric::id())
+        .filter(Metric::small_value().gt(10));
+    let rows = database
+        .fetch_all_as(
+            select_from::<SelectedMetric>()
+                .with(selected)
+                .select(SelectedMetric::label())
+                .filter(SelectedMetric::id().in_subquery(eligible)),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(rows, vec!["production".to_owned()]);
+
+    let total = database
+        .fetch_all_as(select_from::<Metric>().select(count_all().alias("metric_count")))
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(total, vec![1_i64]);
 
     let error = database
         .execute(insert_into::<NarrowMetric>().value(NarrowMetric::small_value(), i64::MAX))

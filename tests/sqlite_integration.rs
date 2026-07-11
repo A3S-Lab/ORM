@@ -1,8 +1,8 @@
 #![cfg(feature = "sqlite")]
 
 use a3s_orm::{
-    delete_from, insert_into, orm_table, select_from, update_table, Database, SqliteDialect,
-    SqliteExecutor, Value,
+    count, delete_from, insert_into, orm_table, select_from, update_table, Database, SelectionExt,
+    SqliteDialect, SqliteExecutor, Value,
 };
 
 orm_table! {
@@ -11,6 +11,13 @@ orm_table! {
         name: String => "name",
         age: i32 => "age",
         nickname: Option<String> => "nickname",
+    }
+}
+
+orm_table! {
+    struct Adult => "adult" {
+        id: i64 => "id",
+        name: String => "name",
     }
 }
 
@@ -131,4 +138,55 @@ async fn reports_integer_overflow_with_the_column_index() {
         .unwrap_err();
     assert!(error.to_string().contains("column 0"));
     assert!(error.to_string().contains("i8"));
+}
+
+#[tokio::test]
+async fn executes_cte_and_bound_subquery_parameters() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    executor
+        .execute_schema(
+            "create table person (
+                id integer primary key,
+                name text not null,
+                age integer not null,
+                nickname text
+             );
+             insert into person values (1, 'Ada', 36, null);
+             insert into person values (2, 'Grace', 40, null)",
+        )
+        .await
+        .unwrap();
+    let database = Database::new(SqliteDialect, executor);
+
+    let adult_cte = select_from::<Person>()
+        .select((Person::id(), Person::name()))
+        .filter(Person::age().gte(18))
+        .as_cte::<Adult>();
+    let eligible_ids = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::age().gte(40));
+    let rows = database
+        .fetch_all_as(
+            select_from::<Adult>()
+                .with(adult_cte)
+                .select(Adult::name())
+                .filter(Adult::id().in_subquery(eligible_ids)),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(rows, vec!["Grace".to_owned()]);
+
+    let grouped = database
+        .fetch_all_as(
+            select_from::<Person>()
+                .select((Person::age(), count(Person::id()).alias("people")))
+                .group_by(Person::age())
+                .having(count(Person::id()).gte(1))
+                .order_by(Person::age(), a3s_orm::OrderDirection::Asc),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(grouped, vec![(36, 1_i64), (40, 1_i64)]);
 }

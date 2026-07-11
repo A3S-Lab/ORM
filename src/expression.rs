@@ -3,12 +3,25 @@ use std::marker::PhantomData;
 use crate::value::{IntoSqlValue, Value};
 
 #[derive(Clone, Debug)]
+pub struct SelectSubquery(pub(crate) Box<crate::ast::SelectNode>);
+
+#[derive(Clone, Debug)]
 pub enum Expression {
     Column {
         table: &'static str,
         name: &'static str,
     },
     Value(Value),
+    Subquery(SelectSubquery),
+    Function {
+        name: &'static str,
+        arguments: Vec<Expression>,
+    },
+    Alias {
+        expression: Box<Expression>,
+        alias: &'static str,
+    },
+    Wildcard,
     Binary {
         left: Box<Expression>,
         operator: BinaryOperator,
@@ -53,6 +66,7 @@ pub enum BinaryOperator {
     LessThan,
     LessThanOrEq,
     Like,
+    In,
     Is,
     IsNot,
 }
@@ -62,6 +76,7 @@ pub enum UnaryOperator {
     IsNull,
     IsNotNull,
     Not,
+    Exists,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +177,26 @@ impl<T, V> Column<T, V> {
         self.compare(BinaryOperator::Eq, other.expression())
     }
 
+    pub fn eq_subquery<Source: crate::Table>(
+        self,
+        query: crate::query::SelectQuery<Source, V>,
+    ) -> Expression {
+        self.compare(
+            BinaryOperator::Eq,
+            Expression::Subquery(SelectSubquery(Box::new(query.into_node()))),
+        )
+    }
+
+    pub fn in_subquery<Source: crate::Table>(
+        self,
+        query: crate::query::SelectQuery<Source, V>,
+    ) -> Expression {
+        self.compare(
+            BinaryOperator::In,
+            Expression::Subquery(SelectSubquery(Box::new(query.into_node()))),
+        )
+    }
+
     pub fn is_null(self) -> Expression {
         Expression::Unary {
             operator: UnaryOperator::IsNull,
@@ -185,9 +220,51 @@ impl<T, V> Column<T, V> {
     }
 }
 
+pub fn exists<Source: crate::Table, Output>(
+    query: crate::query::SelectQuery<Source, Output>,
+) -> Expression {
+    Expression::Unary {
+        operator: UnaryOperator::Exists,
+        expression: Box::new(Expression::Subquery(SelectSubquery(Box::new(
+            query.into_node(),
+        )))),
+    }
+}
+
 pub trait Selection {
     type Output;
     fn expressions(self) -> Vec<Expression>;
+}
+
+pub struct AliasedSelection<S> {
+    selection: S,
+    alias: &'static str,
+}
+
+pub trait SelectionExt: Selection + Sized {
+    fn alias(self, alias: &'static str) -> AliasedSelection<Self> {
+        AliasedSelection {
+            selection: self,
+            alias,
+        }
+    }
+}
+
+impl<T, V> SelectionExt for Column<T, V> {}
+
+impl<S: Selection> Selection for AliasedSelection<S> {
+    type Output = S::Output;
+
+    fn expressions(self) -> Vec<Expression> {
+        self.selection
+            .expressions()
+            .into_iter()
+            .map(|expression| Expression::Alias {
+                expression: Box::new(expression),
+                alias: self.alias,
+            })
+            .collect()
+    }
 }
 
 impl<T, V> Selection for Column<T, V> {

@@ -44,6 +44,25 @@ impl<D: Dialect> Compiler<'_, D> {
         if node.selections.is_empty() {
             return Err(Error::EmptySelection);
         }
+        if !node.ctes.is_empty() {
+            let mut names = std::collections::HashSet::with_capacity(node.ctes.len());
+            for cte in &node.ctes {
+                if !names.insert(cte.name) {
+                    return Err(Error::DuplicateCte(cte.name.to_owned()));
+                }
+            }
+            self.sql.push_str("with ");
+            for (index, cte) in node.ctes.into_iter().enumerate() {
+                if index > 0 {
+                    self.sql.push_str(", ");
+                }
+                self.identifier(cte.name)?;
+                self.sql.push_str(" as (");
+                self.select(*cte.query)?;
+                self.sql.push(')');
+            }
+            self.sql.push(' ');
+        }
         self.sql.push_str("select ");
         if node.distinct {
             self.sql.push_str("distinct ");
@@ -64,6 +83,14 @@ impl<D: Dialect> Compiler<'_, D> {
             self.expression(&join.on)?;
         }
         self.filter(node.filter.as_ref())?;
+        if !node.group_by.is_empty() {
+            self.sql.push_str(" group by ");
+            self.expression_list(&node.group_by)?;
+        }
+        if let Some(having) = node.having.as_ref() {
+            self.sql.push_str(" having ");
+            self.expression(having)?;
+        }
         if !node.order_by.is_empty() {
             self.sql.push_str(" order by ");
             for (index, (expression, direction)) in node.order_by.iter().enumerate() {
@@ -184,6 +211,19 @@ impl<D: Dialect> Compiler<'_, D> {
                 }
             }
             Expression::Value(value) => self.parameter(value.clone()),
+            Expression::Subquery(query) => self.subquery(&query.0, true)?,
+            Expression::Function { name, arguments } => {
+                self.identifier(name)?;
+                self.sql.push('(');
+                self.expression_list(arguments)?;
+                self.sql.push(')');
+            }
+            Expression::Alias { expression, alias } => {
+                self.expression(expression)?;
+                self.sql.push_str(" as ");
+                self.identifier(alias)?;
+            }
+            Expression::Wildcard => self.sql.push('*'),
             Expression::Binary {
                 left,
                 operator,
@@ -199,6 +239,7 @@ impl<D: Dialect> Compiler<'_, D> {
                     BinaryOperator::LessThan => " < ",
                     BinaryOperator::LessThanOrEq => " <= ",
                     BinaryOperator::Like => " like ",
+                    BinaryOperator::In => " in ",
                     BinaryOperator::Is => " is ",
                     BinaryOperator::IsNot => " is not ",
                 });
@@ -222,10 +263,27 @@ impl<D: Dialect> Compiler<'_, D> {
                     self.expression(expression)?;
                     self.sql.push(')');
                 }
+                UnaryOperator::Exists => {
+                    self.sql.push_str("exists ");
+                    match expression.as_ref() {
+                        Expression::Subquery(query) => self.subquery(&query.0, false)?,
+                        expression => self.expression(expression)?,
+                    }
+                }
             },
             Expression::And(expressions) => self.boolean_group(expressions, " and ")?,
             Expression::Or(expressions) => self.boolean_group(expressions, " or ")?,
         }
+        Ok(())
+    }
+
+    fn subquery(&mut self, query: &SelectNode, scalar: bool) -> Result<()> {
+        if scalar && query.selections.len() != 1 {
+            return Err(Error::InvalidScalarSubquery(query.selections.len()));
+        }
+        self.sql.push('(');
+        self.select(query.clone())?;
+        self.sql.push(')');
         Ok(())
     }
 

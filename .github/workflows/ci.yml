@@ -16,7 +16,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -45,7 +45,7 @@ jobs:
     env:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --no-default-features --features postgres --test postgres_integration

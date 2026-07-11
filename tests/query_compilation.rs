@@ -1,6 +1,7 @@
+use a3s_orm::expression::Selection;
 use a3s_orm::{
-    delete_from, insert_into, orm_table, select_from, update_table, OrderDirection,
-    PostgresDialect, Query, SqliteDialect, Value,
+    count, delete_from, exists, insert_into, orm_table, select_from, update_table, OrderDirection,
+    PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
 };
 
 orm_table! {
@@ -9,6 +10,23 @@ orm_table! {
         name: String => "name",
         age: i32 => "age",
         manager_id: Option<i64> => "manager_id",
+    }
+}
+
+struct InvalidScalarSelection;
+
+impl Selection for InvalidScalarSelection {
+    type Output = i64;
+
+    fn expressions(self) -> Vec<a3s_orm::Expression> {
+        vec![Person::id().expression(), Person::manager_id().expression()]
+    }
+}
+
+orm_table! {
+    pub struct Adult => "adult" {
+        id: i64 => "id",
+        name: String => "name",
     }
 }
 
@@ -95,4 +113,97 @@ fn rejects_incomplete_queries_and_unsupported_returning() {
         .compile(&a3s_orm::MysqlDialect)
         .unwrap_err();
     assert!(error.to_string().contains("does not support returning"));
+}
+
+#[test]
+fn compiles_scalar_subqueries_exists_and_continuous_parameters() {
+    let adults = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::age().gte(18));
+    let pets = select_from::<Pet>()
+        .select(Pet::id())
+        .filter(Pet::owner_id().eq_column(Person::id()));
+    let query = select_from::<Person>()
+        .select(Person::name())
+        .filter(Person::name().like("A%"))
+        .filter(Person::id().in_subquery(adults))
+        .filter(exists(pets))
+        .compile(&PostgresDialect)
+        .unwrap();
+
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"name\" from \"person\" where ((\"person\".\"name\" like $1) and (\"person\".\"id\" in (select \"person\".\"id\" from \"person\" where (\"person\".\"age\" >= $2))) and exists (select \"pet\".\"id\" from \"pet\" where (\"pet\".\"owner_id\" = \"person\".\"id\")))"
+    );
+    assert_eq!(
+        query.parameters,
+        vec![Value::String("A%".to_owned()), Value::I64(18)]
+    );
+}
+
+#[test]
+fn compiles_ctes_before_main_query_and_rejects_invalid_shapes() {
+    let adult_cte = select_from::<Person>()
+        .select((Person::id(), Person::name()))
+        .filter(Person::age().gte(18))
+        .as_cte::<Adult>();
+    let query = select_from::<Adult>()
+        .with(adult_cte)
+        .select(Adult::name())
+        .filter(Adult::id().gt(10))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "with \"adult\" as (select \"person\".\"id\", \"person\".\"name\" from \"person\" where (\"person\".\"age\" >= $1)) select \"adult\".\"name\" from \"adult\" where (\"adult\".\"id\" > $2)"
+    );
+    assert_eq!(query.parameters, vec![Value::I64(18), Value::I64(10)]);
+
+    let invalid_scalar = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::id().eq_subquery(select_from::<Person>().select(InvalidScalarSelection)))
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(invalid_scalar.to_string().contains("exactly one"));
+
+    let duplicate = select_from::<Adult>()
+        .with(
+            select_from::<Person>()
+                .select(Person::id())
+                .as_cte::<Adult>(),
+        )
+        .with(
+            select_from::<Person>()
+                .select(Person::id())
+                .as_cte::<Adult>(),
+        )
+        .select(Adult::id())
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(duplicate.to_string().contains("duplicate"));
+}
+
+#[test]
+fn select_replaces_the_previous_projection_to_preserve_output_type() {
+    let query = select_from::<Person>()
+        .select(Person::id())
+        .select(Person::name())
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(query.sql, "select \"person\".\"name\" from \"person\"");
+}
+
+#[test]
+fn compiles_aliased_aggregates_grouping_and_having() {
+    let query = select_from::<Person>()
+        .select((Person::age(), count(Person::id()).alias("person_count")))
+        .group_by(Person::age())
+        .having(count(Person::id()).gt(1))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"age\", \"count\"(\"person\".\"id\") as \"person_count\" from \"person\" group by \"person\".\"age\" having (\"count\"(\"person\".\"id\") > $1)"
+    );
+    assert_eq!(query.parameters, vec![Value::I64(1)]);
 }

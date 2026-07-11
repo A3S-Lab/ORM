@@ -6,6 +6,7 @@
 
 - `schema` defines table identity and references.
 - `expression` defines typed columns, predicates, and ordering.
+- `function` owns typed aggregate expressions without coupling them to statement builders.
 - `query` owns immutable statement builders, split by SQL statement kind.
 - `ast` is the internal representation shared by builders and compilers. It is not public API.
 - `compiler` turns the AST into SQL and bound parameters. `dialect` owns identifier quoting, placeholders, and feature flags.
@@ -15,6 +16,8 @@
 - `value` is the common parameter and untyped result-value boundary.
 
 The compiler never opens a connection, and drivers never need to understand typed builder state. This allows compile-only use and keeps new runtime integrations local to `drivers`.
+
+CTEs and subqueries remain AST nodes until dialect compilation. They share one compiler parameter accumulator, so PostgreSQL placeholders stay globally ordered across CTEs, outer predicates, and nested queries. CTE names, selection aliases, and function identifiers pass through the same identifier validation and quoting as schema identifiers.
 
 ## SQLite transaction isolation
 

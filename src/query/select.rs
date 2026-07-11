@@ -4,7 +4,7 @@ use crate::ast::{JoinKind, JoinNode, QueryNode, SelectNode, TableNode};
 use crate::expression::{Column, Expression, OrderDirection, Selection};
 use crate::schema::{Table, TableRef};
 
-use super::Query;
+use super::{Cte, Query};
 
 #[derive(Clone, Debug)]
 pub struct SelectQuery<T: Table, O = ()> {
@@ -20,10 +20,13 @@ impl<T: Table> SelectQuery<T> {
     pub fn new(table: TableRef<T>) -> Self {
         Self {
             node: SelectNode {
+                ctes: Vec::new(),
                 from: table_node(table),
                 selections: Vec::new(),
                 joins: Vec::new(),
                 filter: None,
+                group_by: Vec::new(),
+                having: None,
                 order_by: Vec::new(),
                 limit: None,
                 offset: None,
@@ -36,7 +39,7 @@ impl<T: Table> SelectQuery<T> {
 
 impl<T: Table, O> SelectQuery<T, O> {
     pub fn select<S: Selection>(mut self, selection: S) -> SelectQuery<T, S::Output> {
-        self.node.selections.extend(selection.expressions());
+        self.node.selections = selection.expressions();
         SelectQuery {
             node: self.node,
             marker: PhantomData,
@@ -44,10 +47,10 @@ impl<T: Table, O> SelectQuery<T, O> {
     }
 
     pub fn select_all(mut self) -> SelectQuery<T, T> {
-        self.node.selections.push(Expression::Column {
+        self.node.selections = vec![Expression::Column {
             table: T::NAME,
             name: "*",
-        });
+        }];
         SelectQuery {
             node: self.node,
             marker: PhantomData,
@@ -59,8 +62,30 @@ impl<T: Table, O> SelectQuery<T, O> {
         self
     }
 
+    pub fn with<C: Table>(mut self, cte: Cte<C>) -> Self {
+        self.node.ctes.push(cte.node);
+        self
+    }
+
+    pub fn as_cte<C: Table>(self) -> Cte<C> {
+        Cte::new(self.node)
+    }
+
     pub fn filter(mut self, expression: Expression) -> Self {
         self.node.filter = Some(match self.node.filter.take() {
+            Some(existing) => existing.and(expression),
+            None => expression,
+        });
+        self
+    }
+
+    pub fn group_by<TableType, ValueType>(mut self, column: Column<TableType, ValueType>) -> Self {
+        self.node.group_by.push(column.expression());
+        self
+    }
+
+    pub fn having(mut self, expression: Expression) -> Self {
+        self.node.having = Some(match self.node.having.take() {
             Some(existing) => existing.and(expression),
             None => expression,
         });
@@ -109,6 +134,10 @@ impl<T: Table, O> SelectQuery<T, O> {
             on,
         });
         self
+    }
+
+    pub(crate) fn into_node(self) -> SelectNode {
+        self.node
     }
 }
 
