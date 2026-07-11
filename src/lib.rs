@@ -4,7 +4,7 @@
 //! execution behind separate interfaces. It does not use an Active Record
 //! model and never performs implicit runtime value conversion.
 
-#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "sqlite", doc = include_str!("../README.md"))]
 
 mod ast;
 pub mod compiler;
