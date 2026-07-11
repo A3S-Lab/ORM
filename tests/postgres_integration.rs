@@ -1,8 +1,9 @@
 #![cfg(feature = "postgres")]
 
 use a3s_orm::{
-    count_all, insert_into, orm_table, select_from, Database, Executor, InsertRow, Migration,
-    MigrationError, Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt, SqlArray,
+    count_all, insert_into, orm_table, row_number, select_from, Database, Executor, InsertRow,
+    Migration, MigrationError, Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt,
+    SqlArray,
 };
 
 orm_table! {
@@ -346,6 +347,49 @@ async fn executes_typed_queries_against_postgres_pool() {
             (1, "first".to_owned()),
             (2, "updated".to_owned()),
             (3, "third".to_owned()),
+        ]
+    );
+
+    let ranked = database
+        .fetch_all_as(
+            select_from::<UpsertRecord>()
+                .select((
+                    UpsertRecord::value(),
+                    row_number()
+                        .order_by(UpsertRecord::id(), a3s_orm::OrderDirection::Asc)
+                        .alias("position"),
+                ))
+                .order_by(UpsertRecord::id(), a3s_orm::OrderDirection::Asc),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        ranked,
+        vec![
+            ("first".to_owned(), 1_i64),
+            ("updated".to_owned(), 2_i64),
+            ("third".to_owned(), 3_i64),
+        ]
+    );
+
+    let mut combined = database
+        .fetch_all_as(
+            select_from::<Metric>()
+                .select(Metric::label())
+                .union(select_from::<UpsertRecord>().select(UpsertRecord::value())),
+        )
+        .await
+        .unwrap()
+        .rows;
+    combined.sort();
+    assert_eq!(
+        combined,
+        vec![
+            "first".to_owned(),
+            "production".to_owned(),
+            "third".to_owned(),
+            "updated".to_owned(),
         ]
     );
 

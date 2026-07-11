@@ -100,6 +100,23 @@ where
             .map_err(DatabaseError::Execute)
     }
 
+    pub async fn fetch_optional<Q: Query>(
+        &self,
+        query: Q,
+    ) -> std::result::Result<Option<E::Row>, DatabaseError<E::Error>> {
+        let result = self.fetch_all(query).await?;
+        exactly_optional(result.rows)
+    }
+
+    pub async fn fetch_one<Q: Query>(
+        &self,
+        query: Q,
+    ) -> std::result::Result<E::Row, DatabaseError<E::Error>> {
+        self.fetch_optional(query)
+            .await?
+            .ok_or(DatabaseError::NoRows)
+    }
+
     pub async fn fetch_all_as<Q>(
         &self,
         query: Q,
@@ -119,6 +136,33 @@ where
         Ok(QueryResult { rows })
     }
 
+    pub async fn fetch_optional_as<Q>(
+        &self,
+        query: Q,
+    ) -> std::result::Result<Option<Q::Output>, DatabaseError<E::Error>>
+    where
+        Q: Query,
+        Q::Output: FromRow,
+        E::Row: Row,
+    {
+        let result = self.fetch_all_as(query).await?;
+        exactly_optional(result.rows)
+    }
+
+    pub async fn fetch_one_as<Q>(
+        &self,
+        query: Q,
+    ) -> std::result::Result<Q::Output, DatabaseError<E::Error>>
+    where
+        Q: Query,
+        Q::Output: FromRow,
+        E::Row: Row,
+    {
+        self.fetch_optional_as(query)
+            .await?
+            .ok_or(DatabaseError::NoRows)
+    }
+
     pub fn into_parts(self) -> (D, E) {
         (self.dialect, self.executor)
     }
@@ -135,4 +179,19 @@ where
     Execute(E),
     #[error("database row decoding failed: {0}")]
     Decode(#[from] crate::DecodeError),
+    #[error("query returned no rows")]
+    NoRows,
+    #[error("query returned {actual} rows where at most one was expected")]
+    TooManyRows { actual: usize },
+}
+
+fn exactly_optional<Row, E>(rows: Vec<Row>) -> std::result::Result<Option<Row>, DatabaseError<E>>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(rows.into_iter().next()),
+        actual => Err(DatabaseError::TooManyRows { actual }),
+    }
 }

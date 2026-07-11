@@ -1,8 +1,8 @@
 #![cfg(feature = "sqlite")]
 
 use a3s_orm::{
-    count, delete_from, insert_into, orm_table, select_from, update_table, Database, InsertRow,
-    SelectionExt, SqliteDialect, SqliteExecutor, Value,
+    count, delete_from, insert_into, orm_table, row_number, select_from, sql_query, update_table,
+    Database, InsertRow, SelectionExt, SqliteDialect, SqliteExecutor, Value,
 };
 
 orm_table! {
@@ -177,6 +177,35 @@ async fn executes_cte_and_bound_subquery_parameters() {
         .rows;
     assert_eq!(rows, vec!["Grace".to_owned()]);
 
+    let grace = database
+        .fetch_one_as(
+            select_from::<Person>()
+                .select(Person::name())
+                .filter(Person::id().eq(2)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(grace, "Grace");
+    let raw_grace = database
+        .fetch_one_as(sql_query::<String>("select name from person where id = ").bind(2))
+        .await
+        .unwrap();
+    assert_eq!(raw_grace, "Grace");
+    let missing = database
+        .fetch_optional_as(
+            select_from::<Person>()
+                .select(Person::name())
+                .filter(Person::id().eq(999)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing, None);
+    let multiple = database
+        .fetch_one_as(select_from::<Person>().select(Person::id()))
+        .await
+        .unwrap_err();
+    assert!(multiple.to_string().contains("2 rows"));
+
     let grouped = database
         .fetch_all_as(
             select_from::<Person>()
@@ -189,6 +218,42 @@ async fn executes_cte_and_bound_subquery_parameters() {
         .unwrap()
         .rows;
     assert_eq!(grouped, vec![(36, 1_i64), (40, 1_i64)]);
+
+    let ranked = database
+        .fetch_all_as(
+            select_from::<Person>()
+                .select((
+                    Person::name(),
+                    row_number()
+                        .order_by(Person::age(), a3s_orm::OrderDirection::Asc)
+                        .alias("position"),
+                ))
+                .order_by(Person::age(), a3s_orm::OrderDirection::Asc),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(
+        ranked,
+        vec![("Ada".to_owned(), 1_i64), ("Grace".to_owned(), 2_i64)]
+    );
+
+    let mut combined = database
+        .fetch_all_as(
+            select_from::<Person>()
+                .select(Person::name())
+                .filter(Person::age().lt(40))
+                .union(
+                    select_from::<Person>()
+                        .select(Person::name())
+                        .filter(Person::age().gte(40)),
+                ),
+        )
+        .await
+        .unwrap()
+        .rows;
+    combined.sort();
+    assert_eq!(combined, vec!["Ada".to_owned(), "Grace".to_owned()]);
 }
 
 #[tokio::test]

@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::ast::{JoinKind, JoinNode, QueryNode, SelectNode, TableNode};
+use crate::ast::{
+    JoinKind, JoinNode, QueryNode, SelectNode, SetOperationKind, SetOperationNode, TableNode,
+};
 use crate::expression::{Column, Expression, OrderDirection, Selection};
 use crate::schema::{Table, TableRef};
 
@@ -16,17 +18,29 @@ pub fn select_from<T: Table>() -> SelectQuery<T> {
     SelectQuery::new(TableRef::<T>::new())
 }
 
+pub fn select_from_as<Source: Table, Alias: Table>() -> SelectQuery<Alias> {
+    SelectQuery::from_table(TableNode {
+        name: Source::NAME,
+        alias: Some(Alias::NAME),
+    })
+}
+
 impl<T: Table> SelectQuery<T> {
-    pub fn new(table: TableRef<T>) -> Self {
+    pub(crate) fn new(table: TableRef<T>) -> Self {
+        Self::from_table(table_node(table))
+    }
+
+    fn from_table(from: TableNode) -> Self {
         Self {
             node: SelectNode {
                 ctes: Vec::new(),
-                from: table_node(table),
+                from,
                 selections: Vec::new(),
                 joins: Vec::new(),
                 filter: None,
                 group_by: Vec::new(),
                 having: None,
+                set_operations: Vec::new(),
                 order_by: Vec::new(),
                 limit: None,
                 offset: None,
@@ -108,6 +122,14 @@ impl<T: Table, O> SelectQuery<T, O> {
         self.join::<J>(JoinKind::Full, on)
     }
 
+    pub fn inner_join_as<Source: Table, Alias: Table>(self, on: Expression) -> Self {
+        self.join_as::<Source, Alias>(JoinKind::Inner, on)
+    }
+
+    pub fn left_join_as<Source: Table, Alias: Table>(self, on: Expression) -> Self {
+        self.join_as::<Source, Alias>(JoinKind::Left, on)
+    }
+
     pub fn order_by<TableType, ValueType>(
         mut self,
         column: Column<TableType, ValueType>,
@@ -127,11 +149,51 @@ impl<T: Table, O> SelectQuery<T, O> {
         self
     }
 
+    pub fn union<Source: Table>(self, query: SelectQuery<Source, O>) -> Self {
+        self.set_operation(SetOperationKind::Union, query)
+    }
+
+    pub fn union_all<Source: Table>(self, query: SelectQuery<Source, O>) -> Self {
+        self.set_operation(SetOperationKind::UnionAll, query)
+    }
+
+    pub fn intersect<Source: Table>(self, query: SelectQuery<Source, O>) -> Self {
+        self.set_operation(SetOperationKind::Intersect, query)
+    }
+
+    pub fn except<Source: Table>(self, query: SelectQuery<Source, O>) -> Self {
+        self.set_operation(SetOperationKind::Except, query)
+    }
+
     fn join<J: Table>(mut self, kind: JoinKind, on: Expression) -> Self {
         self.node.joins.push(JoinNode {
             kind,
             table: table_node(TableRef::<J>::new()),
             on,
+        });
+        self
+    }
+
+    fn join_as<Source: Table, Alias: Table>(mut self, kind: JoinKind, on: Expression) -> Self {
+        self.node.joins.push(JoinNode {
+            kind,
+            table: TableNode {
+                name: Source::NAME,
+                alias: Some(Alias::NAME),
+            },
+            on,
+        });
+        self
+    }
+
+    fn set_operation<Source: Table>(
+        mut self,
+        kind: SetOperationKind,
+        query: SelectQuery<Source, O>,
+    ) -> Self {
+        self.node.set_operations.push(SetOperationNode {
+            kind,
+            query: Box::new(query.node),
         });
         self
     }
@@ -145,13 +207,13 @@ impl<T: Table, O> Query for SelectQuery<T, O> {
     type Output = O;
 
     fn compile(self, dialect: &impl crate::Dialect) -> crate::Result<crate::CompiledQuery> {
-        crate::compiler::compile(QueryNode::Select(self.node), dialect)
+        crate::compiler::compile(QueryNode::Select(Box::new(self.node)), dialect)
     }
 }
 
 fn table_node<T: Table>(table: TableRef<T>) -> TableNode {
     TableNode {
         name: table.name(),
-        alias: table.alias_name(),
+        alias: None,
     }
 }

@@ -2,6 +2,7 @@
 name = "a3s-orm"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
 description = "A type-safe, executor-neutral SQL query builder for Rust"
 license = "MIT"
 repository = "https://github.com/A3S-Lab/ORM"

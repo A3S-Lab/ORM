@@ -22,11 +22,12 @@ The project is being developed incrementally. Completed items describe implement
 - Selection aliases, basic aggregates, grouping, and having clauses.
 - PostgreSQL UUID, JSON/JSONB, temporal, Numeric, and nullable array round trips.
 - Multi-row inserts and PostgreSQL/SQLite conflict handling.
+- Typed window functions, frames, and set operations.
+- Explicit one/optional result cardinality and bound static raw queries.
+- Typed source and join aliases.
 
 ## Next
 
-- Window functions and set operations.
-- Safe raw SQL fragments with bound parameters.
 - PostgreSQL enum, range, network, and custom-domain codecs.
 
 ## Later

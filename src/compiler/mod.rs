@@ -5,10 +5,12 @@ pub use dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
 use crate::ast::{
     ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectNode,
-    TableNode, UpdateNode,
+    SetOperationKind, TableNode, UpdateNode,
 };
 use crate::error::{Error, Result};
-use crate::expression::{BinaryOperator, Expression, OrderDirection, UnaryOperator};
+use crate::expression::{
+    BinaryOperator, Expression, OrderDirection, UnaryOperator, WindowBoundary, WindowFrameUnits,
+};
 use crate::value::Value;
 use validation::{validate_identifier, verify_assignments, verify_insert_rows};
 
@@ -25,7 +27,7 @@ pub(crate) fn compile(query: QueryNode, dialect: &impl Dialect) -> Result<Compil
         parameters: Vec::new(),
     };
     match query {
-        QueryNode::Select(node) => compiler.select(node)?,
+        QueryNode::Select(node) => compiler.select(*node)?,
         QueryNode::Insert(node) => compiler.insert(node)?,
         QueryNode::Update(node) => compiler.update(node)?,
         QueryNode::Delete(node) => compiler.delete(node)?,
@@ -93,6 +95,22 @@ impl<D: Dialect> Compiler<'_, D> {
         if let Some(having) = node.having.as_ref() {
             self.sql.push_str(" having ");
             self.expression(having)?;
+        }
+        for operation in node.set_operations {
+            if !operation.query.ctes.is_empty()
+                || !operation.query.order_by.is_empty()
+                || operation.query.limit.is_some()
+                || operation.query.offset.is_some()
+            {
+                return Err(Error::UnsupportedSetOperand);
+            }
+            self.sql.push_str(match operation.kind {
+                SetOperationKind::Union => " union ",
+                SetOperationKind::UnionAll => " union all ",
+                SetOperationKind::Intersect => " intersect ",
+                SetOperationKind::Except => " except ",
+            });
+            self.select(*operation.query)?;
         }
         if !node.order_by.is_empty() {
             self.sql.push_str(" order by ");
@@ -270,6 +288,49 @@ impl<D: Dialect> Compiler<'_, D> {
                 self.identifier(alias)?;
             }
             Expression::Wildcard => self.sql.push('*'),
+            Expression::Window {
+                expression,
+                partition_by,
+                order_by,
+                frame,
+            } => {
+                self.expression(expression)?;
+                self.sql.push_str(" over (");
+                let mut needs_space = false;
+                if !partition_by.is_empty() {
+                    self.sql.push_str("partition by ");
+                    self.expression_list(partition_by)?;
+                    needs_space = true;
+                }
+                if !order_by.is_empty() {
+                    if needs_space {
+                        self.sql.push(' ');
+                    }
+                    self.sql.push_str("order by ");
+                    self.order_list(order_by)?;
+                    needs_space = true;
+                }
+                if let Some(frame) = frame {
+                    if matches!(frame.start, WindowBoundary::UnboundedFollowing)
+                        || matches!(frame.end, WindowBoundary::UnboundedPreceding)
+                    {
+                        return Err(Error::InvalidWindowFrame);
+                    }
+                    if needs_space {
+                        self.sql.push(' ');
+                    }
+                    self.sql.push_str(match frame.units {
+                        WindowFrameUnits::Rows => "rows",
+                        WindowFrameUnits::Range => "range",
+                        WindowFrameUnits::Groups => "groups",
+                    });
+                    self.sql.push_str(" between ");
+                    self.window_boundary(frame.start);
+                    self.sql.push_str(" and ");
+                    self.window_boundary(frame.end);
+                }
+                self.sql.push(')');
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -348,6 +409,36 @@ impl<D: Dialect> Compiler<'_, D> {
         }
         self.sql.push(')');
         Ok(())
+    }
+
+    fn order_list(&mut self, order_by: &[(Expression, OrderDirection)]) -> Result<()> {
+        for (index, (expression, direction)) in order_by.iter().enumerate() {
+            if index > 0 {
+                self.sql.push_str(", ");
+            }
+            self.expression(expression)?;
+            self.sql.push_str(match direction {
+                OrderDirection::Asc => " asc",
+                OrderDirection::Desc => " desc",
+            });
+        }
+        Ok(())
+    }
+
+    fn window_boundary(&mut self, boundary: WindowBoundary) {
+        match boundary {
+            WindowBoundary::UnboundedPreceding => self.sql.push_str("unbounded preceding"),
+            WindowBoundary::Preceding(value) => {
+                self.sql.push_str(&value.to_string());
+                self.sql.push_str(" preceding");
+            }
+            WindowBoundary::CurrentRow => self.sql.push_str("current row"),
+            WindowBoundary::Following(value) => {
+                self.sql.push_str(&value.to_string());
+                self.sql.push_str(" following");
+            }
+            WindowBoundary::UnboundedFollowing => self.sql.push_str("unbounded following"),
+        }
     }
 
     fn table(&mut self, table: &TableNode) -> Result<()> {

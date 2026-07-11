@@ -8,6 +8,12 @@ pub enum Error {
     InvalidScalarSubquery(usize),
     #[error("duplicate common table expression name: {0:?}")]
     DuplicateCte(String),
+    #[error("set-operation operands with CTE, ordering, limit, or offset are not supported")]
+    UnsupportedSetOperand,
+    #[error("invalid window frame boundaries")]
+    InvalidWindowFrame,
+    #[error("raw SQL query cannot be empty")]
+    EmptyRawQuery,
     #[error("insert query requires at least one value")]
     EmptyInsert,
     #[error("insert row {row} has columns that differ from the first row")]

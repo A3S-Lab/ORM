@@ -16,10 +16,25 @@ pub(crate) struct SelectNode {
     pub filter: Option<Expression>,
     pub group_by: Vec<Expression>,
     pub having: Option<Expression>,
+    pub set_operations: Vec<SetOperationNode>,
     pub order_by: Vec<(Expression, OrderDirection)>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     pub distinct: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SetOperationNode {
+    pub kind: SetOperationKind,
+    pub query: Box<SelectNode>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SetOperationKind {
+    Union,
+    UnionAll,
+    Intersect,
+    Except,
 }
 
 #[derive(Clone, Debug)]
@@ -103,7 +118,7 @@ pub(crate) struct Assignment {
 
 #[derive(Clone, Debug)]
 pub(crate) enum QueryNode {
-    Select(SelectNode),
+    Select(Box<SelectNode>),
     Insert(InsertNode),
     Update(UpdateNode),
     Delete(DeleteNode),

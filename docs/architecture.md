@@ -7,6 +7,7 @@
 - `schema` defines table identity and references.
 - `expression` defines typed columns, predicates, and ordering.
 - `function` owns typed aggregate expressions without coupling them to statement builders.
+- `window` owns typed window specifications and frame boundaries.
 - `query` owns immutable statement builders, split by SQL statement kind.
 - `ast` is the internal representation shared by builders and compilers. It is not public API.
 - `compiler` turns the AST into SQL and bound parameters. `dialect` owns identifier quoting, placeholders, and feature flags.
@@ -21,6 +22,10 @@ The compiler never opens a connection, and drivers never need to understand type
 CTEs and subqueries remain AST nodes until dialect compilation. They share one compiler parameter accumulator, so PostgreSQL placeholders stay globally ordered across CTEs, outer predicates, and nested queries. CTE names, selection aliases, and function identifiers pass through the same identifier validation and quoting as schema identifiers.
 
 Multi-row inserts store rows separately in the AST. Compilation verifies identical column ordering before flattening values into the shared parameter accumulator. Conflict assignments distinguish bound values from references to the `excluded` row; neither path interpolates application data. Dialects advertise conflict support explicitly, so unsupported MySQL syntax fails rather than being approximated.
+
+Set operations retain the same Rust output type on both operands and share the compiler parameter accumulator. Window functions are typed selections with explicit partitioning, ordering, and frame nodes. Raw queries form a separate escape hatch: SQL text requires a static lifetime, and dynamic values can only be appended as bound parameters.
+
+Aliases are represented by a distinct table marker. The AST stores the source table and alias separately while columns are constructed from the alias marker, preventing the invalid combination of an aliased FROM clause with original-table column qualifiers.
 
 ## SQLite transaction isolation
 

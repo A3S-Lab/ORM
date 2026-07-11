@@ -1,7 +1,8 @@
 use a3s_orm::expression::Selection;
 use a3s_orm::{
-    count, delete_from, exists, insert_into, orm_table, select_from, update_table, InsertRow,
-    OrderDirection, PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
+    count, delete_from, exists, insert_into, orm_table, row_number, select_from, select_from_as,
+    sql_query, update_table, InsertRow, OrderDirection, PostgresDialect, Query, SelectionExt,
+    SqliteDialect, Value, WindowBoundary, WindowFrameUnits,
 };
 
 orm_table! {
@@ -10,6 +11,20 @@ orm_table! {
         name: String => "name",
         age: i32 => "age",
         manager_id: Option<i64> => "manager_id",
+    }
+}
+
+orm_table! {
+    pub struct PersonAlias => "p" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
+
+orm_table! {
+    pub struct PetAlias => "pt" {
+        owner_id: i64 => "owner_id",
+        name: String => "name",
     }
 }
 
@@ -188,6 +203,128 @@ fn rejects_invalid_insert_rows_and_unsupported_conflicts() {
         .compile(&a3s_orm::MysqlDialect)
         .unwrap_err();
     assert!(mysql.to_string().contains("does not support on conflict"));
+}
+
+#[test]
+fn compiles_typed_set_operations_with_continuous_parameters() {
+    let query = select_from::<Person>()
+        .select(Person::name())
+        .filter(Person::age().gte(18))
+        .union_all(
+            select_from::<Pet>()
+                .select(Pet::name())
+                .filter(Pet::name().like("A%")),
+        )
+        .except(
+            select_from::<Person>()
+                .select(Person::name())
+                .filter(Person::age().lt(21)),
+        )
+        .limit(50)
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"name\" from \"person\" where (\"person\".\"age\" >= $1) union all select \"pet\".\"name\" from \"pet\" where (\"pet\".\"name\" like $2) except select \"person\".\"name\" from \"person\" where (\"person\".\"age\" < $3) limit $4"
+    );
+    assert_eq!(
+        query.parameters,
+        vec![
+            Value::I64(18),
+            Value::String("A%".to_owned()),
+            Value::I64(21),
+            Value::U64(50),
+        ]
+    );
+
+    let unsupported = select_from::<Person>()
+        .select(Person::name())
+        .union(
+            select_from::<Pet>()
+                .select(Pet::name())
+                .order_by(Pet::name(), OrderDirection::Asc),
+        )
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(unsupported.to_string().contains("set-operation"));
+}
+
+#[test]
+fn compiles_typed_window_functions_and_frames() {
+    let query = select_from::<Person>()
+        .select((
+            Person::name(),
+            row_number()
+                .partition_by(Person::manager_id())
+                .order_by(Person::age(), OrderDirection::Desc)
+                .alias("position"),
+            count(Person::id())
+                .over()
+                .partition_by(Person::manager_id())
+                .order_by(Person::age(), OrderDirection::Asc)
+                .frame(
+                    WindowFrameUnits::Rows,
+                    WindowBoundary::UnboundedPreceding,
+                    WindowBoundary::CurrentRow,
+                )
+                .alias("running_count"),
+        ))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"name\", \"row_number\"() over (partition by \"person\".\"manager_id\" order by \"person\".\"age\" desc) as \"position\", \"count\"(\"person\".\"id\") over (partition by \"person\".\"manager_id\" order by \"person\".\"age\" asc rows between unbounded preceding and current row) as \"running_count\" from \"person\""
+    );
+
+    let invalid = select_from::<Person>()
+        .select(row_number().frame(
+            WindowFrameUnits::Rows,
+            WindowBoundary::UnboundedFollowing,
+            WindowBoundary::CurrentRow,
+        ))
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(invalid.to_string().contains("window frame"));
+}
+
+#[test]
+fn compiles_trusted_raw_sql_with_only_bound_runtime_values() {
+    let query = sql_query::<(i64, String)>("select id, name from person where age >= ")
+        .bind(18)
+        .append(" and name <> ")
+        .bind("Robert'); drop table person; --")
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select id, name from person where age >= $1 and name <> $2"
+    );
+    assert!(!query.sql.contains("drop table"));
+    assert_eq!(
+        query.parameters,
+        vec![
+            Value::I64(18),
+            Value::String("Robert'); drop table person; --".to_owned()),
+        ]
+    );
+
+    let empty = sql_query::<()>("   ")
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(empty.to_string().contains("cannot be empty"));
+}
+
+#[test]
+fn compiles_typed_source_and_join_aliases() {
+    let query = select_from_as::<Person, PersonAlias>()
+        .select((PersonAlias::name(), PetAlias::name()))
+        .inner_join_as::<Pet, PetAlias>(PersonAlias::id().eq_column(PetAlias::owner_id()))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"p\".\"name\", \"pt\".\"name\" from \"person\" as \"p\" inner join \"pet\" as \"pt\" on (\"p\".\"id\" = \"pt\".\"owner_id\")"
+    );
 }
 
 #[test]

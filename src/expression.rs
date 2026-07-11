@@ -22,6 +22,12 @@ pub enum Expression {
         alias: &'static str,
     },
     Wildcard,
+    Window {
+        expression: Box<Expression>,
+        partition_by: Vec<Expression>,
+        order_by: Vec<(Expression, OrderDirection)>,
+        frame: Option<WindowFrame>,
+    },
     Binary {
         left: Box<Expression>,
         operator: BinaryOperator,
@@ -83,6 +89,29 @@ pub enum UnaryOperator {
 pub enum OrderDirection {
     Asc,
     Desc,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowFrameUnits {
+    Rows,
+    Range,
+    Groups,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowBoundary {
+    UnboundedPreceding,
+    Preceding(u64),
+    CurrentRow,
+    Following(u64),
+    UnboundedFollowing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowFrame {
+    pub units: WindowFrameUnits,
+    pub start: WindowBoundary,
+    pub end: WindowBoundary,
 }
 
 #[derive(Debug)]

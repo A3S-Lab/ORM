@@ -88,6 +88,7 @@ The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_
 | Multi-row INSERT and PostgreSQL/SQLite ON CONFLICT | Yes |
 | Filters, boolean expressions, ordering, pagination | Yes |
 | Inner, left, right, and full joins | Yes |
+| Typed source and join aliases | Yes |
 | PostgreSQL, SQLite, and MySQL SQL compilation | Yes |
 | Async executor abstraction | Yes |
 | Non-blocking SQLite driver | Yes |
@@ -100,12 +101,18 @@ The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_
 | Locked, checksummed SQLite and PostgreSQL migrations | Yes |
 | CTEs, scalar/IN subqueries, and correlated EXISTS | Yes |
 | Selection aliases, aggregates, GROUP BY, and HAVING | Yes |
-| Plugins and window functions | Planned |
+| Typed window functions and set operations | Yes |
+| Trusted static raw queries with bound runtime values | Yes |
+| Plugins | Planned |
 | MySQL runtime driver | Planned |
 
 MySQL compilation intentionally rejects `RETURNING`, which that dialect does not support. Dialect support does not imply that a runtime driver is bundled.
 
 Multi-row inserts use typed `InsertRow<T>` values. PostgreSQL and SQLite support conflict targets, `DO NOTHING`, bound conflict updates, and updates from the `excluded` row. Every row must contain the same columns in the same order; inconsistent or duplicate assignments fail during compilation.
+
+`fetch_optional` and `fetch_one` provide explicit result-cardinality contracts, including typed variants. For SQL outside the typed AST, `sql_query::<Output>` accepts only static SQL text while runtime data enters through `bind`, preserving dialect placeholders and parameter binding.
+
+Table aliases use a separate typed marker through `select_from_as::<Source, Alias>()` and `join_as` methods. This ensures selected columns reference the SQL alias rather than the original table name.
 
 ## Migrations
 
@@ -150,7 +157,7 @@ See [Architecture](docs/architecture.md) for module ownership and extension poin
 
 ## Status
 
-This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes window functions, set operations, safe raw fragments, plugins, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
+This is an early foundation, not a claim of feature parity with Kysely. The roadmap prioritizes schema builders, plugins, additional codecs, and a MySQL runtime driver. See [Roadmap](docs/roadmap.md).
 
 ## Development
 

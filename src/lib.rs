@@ -16,6 +16,7 @@ pub mod migration;
 pub mod query;
 pub mod schema;
 pub mod value;
+pub mod window;
 
 pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 pub use decode::{DecodeError, FromRow, FromValue, Row};
@@ -33,17 +34,22 @@ pub use error::{Error, Result};
 pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
-pub use expression::{exists, Column, Expression, OrderDirection, SelectionExt};
+pub use expression::{
+    exists, Column, Expression, OrderDirection, SelectionExt, WindowBoundary, WindowFrame,
+    WindowFrameUnits,
+};
 pub use function::{count, count_all, max, min, TypedExpression};
 pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
     MigrationReport, Migrator, PreparedMigration,
 };
 pub use query::{
-    delete_from, insert_into, select_from, update_table, ConflictTarget, InsertRow, Query,
+    delete_from, insert_into, select_from, select_from_as, sql_query, update_table, ConflictTarget,
+    InsertRow, Query, SqlQuery,
 };
 pub use schema::{Table, TableRef};
 pub use value::{IntoSqlValue, SqlArray, Value};
+pub use window::{dense_rank, rank, row_number, WindowExpression};
 
 /// Define a typed table marker and its columns.
 ///
@@ -56,6 +62,31 @@ pub use value::{IntoSqlValue, SqlArray, Value};
 ///         name: String => "name",
 ///     }
 /// }
+/// ```
+///
+/// Column values are checked against the schema type:
+///
+/// ```compile_fail
+/// use a3s_orm::{insert_into, orm_table};
+///
+/// orm_table! {
+///     struct Person => "person" {
+///         age: i32 => "age",
+///     }
+/// }
+///
+/// let _ = insert_into::<Person>().value(Person::age(), "not an integer");
+/// ```
+///
+/// Assignments cannot use a column owned by another table:
+///
+/// ```compile_fail
+/// use a3s_orm::{orm_table, update_table};
+///
+/// orm_table! { struct Person => "person" { name: String => "name" } }
+/// orm_table! { struct Pet => "pet" { name: String => "name" } }
+///
+/// let _ = update_table::<Person>().set(Pet::name(), "wrong table");
 /// ```
 #[macro_export]
 macro_rules! orm_table {

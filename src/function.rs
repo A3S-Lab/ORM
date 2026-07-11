@@ -42,6 +42,10 @@ impl<V> TypedExpression<V> {
         self.compare(BinaryOperator::LessThanOrEq, value)
     }
 
+    pub fn over(self) -> crate::WindowExpression<V> {
+        crate::WindowExpression::new(self.expression)
+    }
+
     fn compare(self, operator: BinaryOperator, value: impl IntoSqlValue<V>) -> Expression {
         Expression::Binary {
             left: Box::new(self.expression),
