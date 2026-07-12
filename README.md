@@ -18,7 +18,7 @@ It is not an Active Record framework: records do not own persistence behavior, q
 
 ```toml
 [dependencies]
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM" }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0" }
 ```
 
 Define the schema and build a query:
@@ -68,13 +68,13 @@ transaction retains the connection gate until its fallback rollback finishes.
 Disable the default SQLite driver for compile-only or custom-driver use:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0", default-features = false }
 ```
 
 Enable the PostgreSQL runtime and its extended types:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", default-features = false, features = ["postgres"] }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0", default-features = false, features = ["postgres"] }
 ```
 
 The PostgreSQL feature includes UUID, JSON/JSONB, Chrono date/time types, `rust_decimal::Decimal`, and `SqlArray<T>`. Arrays use a dedicated wrapper so `Vec<u8>` continues to mean `bytea` rather than `smallint[]`.
@@ -166,11 +166,27 @@ This is an early foundation, not a claim of feature parity with Kysely. The road
 
 ## Development
 
+The integration suite executes SQL against real databases. SQLite tests use
+actual in-memory and temporary file databases. PostgreSQL tests run against a
+PostgreSQL 17 service and cover schema creation, prepared queries, typed value
+round trips, migrations, transactions, rollback, and cancellation cleanup.
+
+CI also runs the full feature matrix with `cargo llvm-cov`. Line coverage must
+remain at or above 90%; the coverage job fails if it drops below that threshold.
+
 ```bash
 cargo fmt --all -- --check
 cargo test --all-features
 cargo test --no-default-features
 cargo clippy --all-targets --all-features -- -D warnings
+```
+
+To reproduce the PostgreSQL integration run locally, provide a disposable
+database URL:
+
+```bash
+A3S_ORM_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:5432/a3s_orm \
+  cargo test --all-features
 ```
 
 ## License

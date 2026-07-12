@@ -1,8 +1,8 @@
 use a3s_orm::expression::Selection;
 use a3s_orm::{
-    count, delete_from, exists, insert_into, orm_table, row_number, select_from, select_from_as,
-    sql_query, update_table, InsertRow, OrderDirection, PostgresDialect, Query, SelectionExt,
-    SqliteDialect, Value, WindowBoundary, WindowFrameUnits,
+    count, delete_from, dense_rank, exists, insert_into, max, min, orm_table, rank, row_number,
+    select_from, select_from_as, sql_query, update_table, Dialect, InsertRow, OrderDirection,
+    PostgresDialect, Query, SelectionExt, SqliteDialect, Value, WindowBoundary, WindowFrameUnits,
 };
 
 orm_table! {
@@ -417,6 +417,111 @@ fn select_replaces_the_previous_projection_to_preserve_output_type() {
         .compile(&PostgresDialect)
         .unwrap();
     assert_eq!(query.sql, "select \"person\".\"name\" from \"person\"");
+}
+
+#[test]
+fn compiles_remaining_predicates_joins_aggregates_and_set_operations() {
+    let query = select_from::<Person>()
+        .distinct()
+        .select((min(Person::age()), max(Person::age())))
+        .left_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+        .right_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+        .full_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+        .filter(Person::age().ne(10).or(Person::age().gt(20)))
+        .filter(Person::age().lte(80))
+        .filter(Person::manager_id().is_not_null())
+        .group_by(Person::manager_id())
+        .having(count(Person::id()).gt(1))
+        .having(count(Person::id()).lte(10))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select distinct \"min\"(\"person\".\"age\"), \"max\"(\"person\".\"age\") from \"person\" left join \"pet\" on (\"person\".\"id\" = \"pet\".\"owner_id\") right join \"pet\" on (\"person\".\"id\" = \"pet\".\"owner_id\") full join \"pet\" on (\"person\".\"id\" = \"pet\".\"owner_id\") where (((\"person\".\"age\" <> $1) or (\"person\".\"age\" > $2)) and (\"person\".\"age\" <= $3) and \"person\".\"manager_id\" is not null) group by \"person\".\"manager_id\" having ((\"count\"(\"person\".\"id\") > $4) and (\"count\"(\"person\".\"id\") <= $5))"
+    );
+
+    let set = select_from::<Person>()
+        .select(Person::name())
+        .intersect(select_from::<Pet>().select(Pet::name()))
+        .compile(&SqliteDialect)
+        .unwrap();
+    assert_eq!(
+        set.sql,
+        "select \"person\".\"name\" from \"person\" intersect select \"pet\".\"name\" from \"pet\""
+    );
+}
+
+#[test]
+fn compiles_all_window_units_boundaries_and_rank_functions() {
+    let query = select_from::<Person>()
+        .select((
+            rank()
+                .frame(
+                    WindowFrameUnits::Range,
+                    WindowBoundary::Preceding(2),
+                    WindowBoundary::Following(3),
+                )
+                .alias("ranked"),
+            dense_rank()
+                .frame(
+                    WindowFrameUnits::Groups,
+                    WindowBoundary::CurrentRow,
+                    WindowBoundary::UnboundedFollowing,
+                )
+                .alias("dense"),
+        ))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"rank\"() over (range between 2 preceding and 3 following) as \"ranked\", \"dense_rank\"() over (groups between current row and unbounded following) as \"dense\" from \"person\""
+    );
+}
+
+#[test]
+fn exposes_schema_and_dialect_metadata_and_select_all() {
+    let column = Person::name();
+    assert_eq!(column.table_name(), "person");
+    assert_eq!(column.name(), "name");
+    assert_eq!(a3s_orm::TableRef::<Person>::new().name(), "person");
+    assert_eq!(a3s_orm::TableRef::<Person>::default().name(), "person");
+
+    assert_eq!(PostgresDialect.name(), "PostgreSQL");
+    assert_eq!(PostgresDialect.identifier_quote(), '"');
+    assert_eq!(PostgresDialect.placeholder(3), "$3");
+    assert!(PostgresDialect.supports_returning());
+    assert!(PostgresDialect.supports_on_conflict());
+    assert_eq!(SqliteDialect.name(), "SQLite");
+    assert_eq!(SqliteDialect.placeholder(3), "?");
+    assert_eq!(a3s_orm::MysqlDialect.name(), "MySQL");
+    assert_eq!(a3s_orm::MysqlDialect.identifier_quote(), '`');
+    assert!(!a3s_orm::MysqlDialect.supports_returning());
+    assert!(!a3s_orm::MysqlDialect.supports_on_conflict());
+
+    assert_eq!(
+        select_from::<Person>()
+            .select_all()
+            .compile(&SqliteDialect)
+            .unwrap()
+            .sql,
+        "select \"person\".* from \"person\""
+    );
+}
+
+#[test]
+fn compiles_all_typed_aggregate_comparisons() {
+    let query = select_from::<Person>()
+        .select(count(Person::id()))
+        .having(count(Person::id()).eq(1))
+        .having(count(Person::id()).ne(2))
+        .having(count(Person::id()).gte(3))
+        .having(count(Person::id()).lt(4))
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "select \"count\"(\"person\".\"id\") from \"person\" having ((\"count\"(\"person\".\"id\") = $1) and (\"count\"(\"person\".\"id\") <> $2) and (\"count\"(\"person\".\"id\") >= $3) and (\"count\"(\"person\".\"id\") < $4))"
+    );
 }
 
 #[test]

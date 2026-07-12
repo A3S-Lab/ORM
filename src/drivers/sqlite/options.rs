@@ -48,3 +48,18 @@ impl SqliteOptions {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_every_journal_mode() {
+        assert_eq!(SqliteJournalMode::Delete.as_sql(), "DELETE");
+        assert_eq!(SqliteJournalMode::Truncate.as_sql(), "TRUNCATE");
+        assert_eq!(SqliteJournalMode::Persist.as_sql(), "PERSIST");
+        assert_eq!(SqliteJournalMode::Memory.as_sql(), "MEMORY");
+        assert_eq!(SqliteJournalMode::Wal.as_sql(), "WAL");
+        assert_eq!(SqliteJournalMode::Off.as_sql(), "OFF");
+    }
+}

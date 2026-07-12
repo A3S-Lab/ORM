@@ -20,6 +20,7 @@ This document defines the production-supported scope of `a3s-orm`. It does not c
 - PostgreSQL integer and array conversions are range checked.
 - CI tests no-default, individual extended-type, PostgreSQL-only, and all-feature builds.
 - CI runs compile-fail doctests, strict Clippy, warning-free rustdoc, Rust 1.85 MSRV, cargo-audit, SQLite integration tests, and PostgreSQL 17 integration tests.
+- CI measures all-feature line coverage against real SQLite and PostgreSQL databases and rejects changes below 90%.
 
 ## Deployment checklist
 

@@ -196,3 +196,151 @@ fn overflow(value: impl ToString, target: &'static str) -> PostgresError {
 pub(crate) fn references(values: &[Box<dyn ToSql + Sync + Send>]) -> Vec<&(dyn ToSql + Sync)> {
     values.iter().map(|value| value.as_ref() as _).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::{NaiveDate, NaiveTime};
+    use rust_decimal::Decimal;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn assert_encodes(value: Value, ty: Type) {
+        let encoded = encode(&[value], &[ty]).unwrap();
+        assert_eq!(encoded.len(), 1);
+        assert_eq!(references(&encoded).len(), 1);
+    }
+
+    #[test]
+    fn encodes_every_scalar_parameter_kind() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let time = NaiveTime::from_hms_opt(10, 20, 30).unwrap();
+        let datetime = date.and_time(time);
+        for (value, ty) in [
+            (Value::Null, Type::TEXT),
+            (Value::Bool(true), Type::BOOL),
+            (Value::I64(1), Type::INT2),
+            (Value::I64(2), Type::INT4),
+            (Value::I64(3), Type::INT8),
+            (Value::U64(4), Type::INT2),
+            (Value::U64(5), Type::INT4),
+            (Value::U64(6), Type::INT8),
+            (Value::F64(1.5), Type::FLOAT4),
+            (Value::F64(2.5), Type::FLOAT8),
+            (Value::String("text".into()), Type::TEXT),
+            (Value::Bytes(vec![1, 2]), Type::BYTEA),
+            (Value::Uuid(Uuid::nil()), Type::UUID),
+            (Value::Json(json!({"ok": true})), Type::JSONB),
+            (Value::Date(date), Type::DATE),
+            (Value::Time(time), Type::TIME),
+            (Value::DateTime(datetime), Type::TIMESTAMP),
+            (Value::DateTimeUtc(datetime.and_utc()), Type::TIMESTAMPTZ),
+            (Value::Decimal(Decimal::new(123, 2)), Type::NUMERIC),
+        ] {
+            assert_encodes(value, ty);
+        }
+    }
+
+    #[test]
+    fn encodes_every_supported_array_kind_with_null_elements() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let time = NaiveTime::from_hms_opt(10, 20, 30).unwrap();
+        let datetime = date.and_time(time);
+        for (value, ty) in [
+            (Value::Bool(true), Type::BOOL_ARRAY),
+            (Value::I64(1), Type::INT2_ARRAY),
+            (Value::U64(2), Type::INT2_ARRAY),
+            (Value::I64(3), Type::INT4_ARRAY),
+            (Value::U64(4), Type::INT4_ARRAY),
+            (Value::I64(5), Type::INT8_ARRAY),
+            (Value::U64(6), Type::INT8_ARRAY),
+            (Value::F64(1.5), Type::FLOAT4_ARRAY),
+            (Value::F64(2.5), Type::FLOAT8_ARRAY),
+            (Value::String("text".into()), Type::TEXT_ARRAY),
+            (Value::String("varchar".into()), Type::VARCHAR_ARRAY),
+            (Value::String("bpchar".into()), Type::BPCHAR_ARRAY),
+            (Value::String("name".into()), Type::NAME_ARRAY),
+            (Value::Uuid(Uuid::nil()), Type::UUID_ARRAY),
+            (Value::Json(json!(1)), Type::JSON_ARRAY),
+            (Value::Json(json!(2)), Type::JSONB_ARRAY),
+            (Value::Date(date), Type::DATE_ARRAY),
+            (Value::Time(time), Type::TIME_ARRAY),
+            (Value::DateTime(datetime), Type::TIMESTAMP_ARRAY),
+            (
+                Value::DateTimeUtc(datetime.and_utc()),
+                Type::TIMESTAMPTZ_ARRAY,
+            ),
+            (Value::Decimal(Decimal::new(123, 2)), Type::NUMERIC_ARRAY),
+        ] {
+            assert_encodes(Value::Array(vec![value, Value::Null]), ty);
+        }
+    }
+
+    #[test]
+    fn rejects_parameter_count_overflow_and_unsupported_arrays() {
+        assert!(matches!(
+            encode(&[Value::I64(1)], &[]),
+            Err(PostgresError::ParameterCount {
+                values: 1,
+                parameters: 0
+            })
+        ));
+
+        for (value, ty, target) in [
+            (Value::I64(i16::MAX as i64 + 1), Type::INT2, "smallint"),
+            (Value::I64(i32::MAX as i64 + 1), Type::INT4, "integer"),
+            (Value::U64(i16::MAX as u64 + 1), Type::INT2, "smallint"),
+            (Value::U64(i32::MAX as u64 + 1), Type::INT4, "integer"),
+            (Value::U64(u64::MAX), Type::INT8, "bigint"),
+        ] {
+            assert!(matches!(
+                encode(&[value], &[ty]),
+                Err(PostgresError::IntegerOverflow { target: actual, .. }) if actual == target
+            ));
+        }
+
+        assert!(matches!(
+            encode(&[Value::Array(vec![])], &[Type::BYTEA_ARRAY]),
+            Err(PostgresError::UnsupportedType(_))
+        ));
+    }
+
+    #[test]
+    fn reports_array_element_type_and_overflow_with_its_index() {
+        for (value, ty) in [
+            (Value::I64(1), Type::BOOL_ARRAY),
+            (Value::String("bad".into()), Type::INT2_ARRAY),
+            (Value::String("bad".into()), Type::INT4_ARRAY),
+            (Value::String("bad".into()), Type::INT8_ARRAY),
+            (Value::String("bad".into()), Type::FLOAT4_ARRAY),
+            (Value::String("bad".into()), Type::FLOAT8_ARRAY),
+            (Value::I64(1), Type::TEXT_ARRAY),
+            (Value::I64(1), Type::UUID_ARRAY),
+            (Value::I64(1), Type::JSON_ARRAY),
+            (Value::I64(1), Type::DATE_ARRAY),
+            (Value::I64(1), Type::TIME_ARRAY),
+            (Value::I64(1), Type::TIMESTAMP_ARRAY),
+            (Value::I64(1), Type::TIMESTAMPTZ_ARRAY),
+            (Value::I64(1), Type::NUMERIC_ARRAY),
+        ] {
+            assert!(matches!(
+                encode(&[Value::Array(vec![Value::Null, value])], &[ty]),
+                Err(PostgresError::ArrayElement { index: 1, .. })
+            ));
+        }
+
+        for (value, ty) in [
+            (Value::I64(i16::MAX as i64 + 1), Type::INT2_ARRAY),
+            (Value::U64(i16::MAX as u64 + 1), Type::INT2_ARRAY),
+            (Value::I64(i32::MAX as i64 + 1), Type::INT4_ARRAY),
+            (Value::U64(i32::MAX as u64 + 1), Type::INT4_ARRAY),
+            (Value::U64(u64::MAX), Type::INT8_ARRAY),
+        ] {
+            assert!(matches!(
+                encode(&[Value::Array(vec![value])], &[ty]),
+                Err(PostgresError::ArrayElement { index: 0, .. })
+            ));
+        }
+    }
+}
