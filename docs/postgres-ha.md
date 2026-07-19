@@ -67,6 +67,11 @@ defines zero as an explicit timeout disable. A non-zero sub-millisecond
 transaction timeout rounds up to one millisecond instead of silently disabling
 the timeout. Pool and migration-lock deadlines reject zero.
 
+Dropping an incomplete transaction permanently detaches its connection from the
+pool before asynchronous rollback. Runtime cancellation or shutdown therefore
+closes the connection instead of returning an open transaction to another pool
+caller.
+
 ## Pool health and metrics
 
 `pool_status()` returns current capacity, checked-out connections, waiters, and

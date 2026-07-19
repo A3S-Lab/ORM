@@ -118,15 +118,23 @@ impl Drop for PostgresTransaction {
         let Some(client) = self.client.take() else {
             return;
         };
+        // An abandoned transaction must never return an open session to the
+        // pool. Detach first so cancellation or the absence of a current Tokio
+        // runtime closes the connection instead of making it reusable.
+        let client = deadpool_postgres::Client::take(client);
         let metrics = Arc::clone(&self.metrics);
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                let _client = client;
-                if let Err(source) = _client.batch_execute("ROLLBACK").await {
-                    let error = PostgresError::Database(source);
-                    metrics.record_error(error.retry_class());
-                }
-            });
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(async move {
+                    if let Err(source) = client.batch_execute("ROLLBACK").await {
+                        let error = PostgresError::Database(source);
+                        metrics.record_error(error.retry_class());
+                    }
+                });
+            }
+            Err(_) => {
+                drop(client);
+            }
         }
     }
 }

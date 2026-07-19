@@ -56,7 +56,9 @@ high-cardinality labels. Pool status is eventually consistent by design.
 Transactions retain one measured pooled connection from `BEGIN` through
 completion. Typed isolation/access options are part of the static `BEGIN`
 statement, while timeouts use transaction-local configuration. Cancellation
-cleanup retains the connection until rollback finishes.
+cleanup first detaches the connection from the pool, then retains it until
+rollback finishes. If no Tokio runtime remains, closing the detached connection
+lets PostgreSQL roll back without exposing the open session to another caller.
 
 ## Migrations
 

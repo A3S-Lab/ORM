@@ -28,6 +28,7 @@ async fn postgres_ha_controls_are_bounded_observable_and_retry_safe() {
     reset_tables(&executor).await;
 
     transaction_options_are_applied_locally(&executor).await;
+    abandoned_transactions_do_not_reenter_the_pool(&url).await;
     serializable_conflicts_are_typed(&executor).await;
     failover_and_disconnects_are_typed(&executor).await;
     pool_exhaustion_and_rotation_are_observable(&url).await;
@@ -40,6 +41,43 @@ async fn postgres_ha_controls_are_bounded_observable_and_retry_safe() {
     assert!(metrics.serialization_failures >= 1);
     assert!(metrics.failover_failures >= 1);
     assert_eq!(metrics.pool.generation, 0);
+}
+
+async fn abandoned_transactions_do_not_reenter_the_pool(url: &str) {
+    let executor = PostgresExecutor::connect_no_tls_with(
+        url,
+        PostgresPoolOptions::new(1)
+            .with_wait_timeout(Some(Duration::from_secs(2)))
+            .with_create_timeout(Some(Duration::from_secs(2)))
+            .with_recycle_timeout(Some(Duration::from_secs(2))),
+    )
+    .unwrap();
+    let transaction = executor
+        .begin_with(
+            PostgresTransactionOptions::new()
+                .with_access_mode(PostgresTransactionAccessMode::ReadOnly),
+        )
+        .await
+        .unwrap();
+    let abandoned_backend_pid = fetch_text(&transaction, "select pg_backend_pid()::text").await;
+
+    std::thread::spawn(move || drop(transaction))
+        .join()
+        .unwrap();
+
+    let client = executor.connection().await.unwrap();
+    let replacement_backend_pid = client
+        .query_one("select pg_backend_pid()::text", &[])
+        .await
+        .unwrap()
+        .get::<_, String>(0);
+    let transaction_read_only = client
+        .query_one("show transaction_read_only", &[])
+        .await
+        .unwrap()
+        .get::<_, String>(0);
+    assert_ne!(replacement_backend_pid, abandoned_backend_pid);
+    assert_eq!(transaction_read_only, "off");
 }
 
 async fn tls_connection_and_rotation_are_verified() {
@@ -80,7 +118,8 @@ async fn reset_tables(executor: &PostgresExecutor) {
         .await
         .unwrap()
         .batch_execute(
-            "drop table if exists a3s_orm_ha_counter;
+            "drop table if exists a3s_orm_migrations;
+             drop table if exists a3s_orm_ha_counter;
              drop table if exists a3s_orm_ha_contract;
              create table a3s_orm_ha_counter (
                  id bigint primary key,

@@ -65,7 +65,6 @@ jobs:
     env:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
       A3S_ORM_POSTGRES_TLS_URL: postgres://postgres:postgres@127.0.0.1:5433/a3s_orm?sslmode=require
-      A3S_ORM_POSTGRES_TLS_CA: ${{ runner.temp }}/a3s-orm-postgres-tls/ca.crt
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -76,6 +75,8 @@ jobs:
           cargo test --no-default-features --features postgres
           --test postgres_integration
           --test postgres_ha
+        env:
+          A3S_ORM_POSTGRES_TLS_CA: ${{ runner.temp }}/a3s-orm-postgres-tls/ca.crt
       - name: Stop verified-TLS PostgreSQL
         if: always()
         run: docker rm -f a3s-orm-postgres-tls || true
@@ -98,7 +99,6 @@ jobs:
     env:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
       A3S_ORM_POSTGRES_TLS_URL: postgres://postgres:postgres@127.0.0.1:5433/a3s_orm?sslmode=require
-      A3S_ORM_POSTGRES_TLS_CA: ${{ runner.temp }}/a3s-orm-postgres-tls/ca.crt
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -109,6 +109,8 @@ jobs:
       - name: Start verified-TLS PostgreSQL
         run: bash .github/start-postgres-tls.sh
       - run: cargo llvm-cov --all-features --all-targets --fail-under-lines 90
+        env:
+          A3S_ORM_POSTGRES_TLS_CA: ${{ runner.temp }}/a3s-orm-postgres-tls/ca.crt
       - name: Stop verified-TLS PostgreSQL
         if: always()
         run: docker rm -f a3s-orm-postgres-tls || true
