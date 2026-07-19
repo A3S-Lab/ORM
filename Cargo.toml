@@ -1,6 +1,6 @@
 [package]
 name = "a3s-orm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 description = "A type-safe, executor-neutral SQL query builder for Rust"
@@ -19,8 +19,11 @@ postgres = [
     "decimal",
     "dep:bytes",
     "dep:deadpool-postgres",
+    "dep:rustls",
     "dep:tokio",
     "dep:tokio-postgres",
+    "dep:tokio-postgres-rustls",
+    "dep:zeroize",
     "json",
     "uuid",
 ]
@@ -36,6 +39,11 @@ rust_decimal = { version = "1", default-features = false, features = [
     "db-tokio-postgres",
     "std",
 ], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+], optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = "0.11"
 thiserror = "2"
@@ -46,8 +54,12 @@ tokio-postgres = { version = "0.7", features = [
     "with-serde_json-1",
     "with-uuid-1",
 ], optional = true }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = [
+    "ring",
+], optional = true }
 tokio-rusqlite = { version = "0.7", optional = true }
 uuid = { version = "1", optional = true }
+zeroize = { version = "1", features = ["alloc"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "time"] }

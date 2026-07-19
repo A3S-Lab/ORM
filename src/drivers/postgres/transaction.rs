@@ -1,25 +1,44 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::{CompiledQuery, ExecuteResult, Executor, QueryResult, Transaction};
 
+use super::metrics::PostgresPoolMetrics;
 use super::parameters::{encode, references};
 use super::{PostgresError, PostgresRow};
 
 pub struct PostgresTransaction {
     client: Option<deadpool_postgres::Client>,
+    metrics: Arc<PostgresPoolMetrics>,
     completed: bool,
 }
 
 impl PostgresTransaction {
-    pub(crate) fn new(client: deadpool_postgres::Client) -> Self {
+    pub(crate) fn new(
+        client: deadpool_postgres::Client,
+        metrics: Arc<PostgresPoolMetrics>,
+    ) -> Self {
         Self {
             client: Some(client),
+            metrics,
             completed: false,
         }
     }
 
     fn client(&self) -> Result<&deadpool_postgres::Client, PostgresError> {
         self.client.as_ref().ok_or(PostgresError::TransactionClosed)
+    }
+
+    fn database_error(&self, source: tokio_postgres::Error) -> PostgresError {
+        let error = PostgresError::Database(source);
+        self.metrics.record_error(error.retry_class());
+        error
+    }
+
+    fn driver_error(&self, error: PostgresError) -> PostgresError {
+        self.metrics.record_error(error.retry_class());
+        error
     }
 }
 
@@ -29,10 +48,19 @@ impl Executor for PostgresTransaction {
     type Error = PostgresError;
 
     async fn execute(&self, query: &CompiledQuery) -> Result<ExecuteResult, Self::Error> {
-        let statement = self.client()?.prepare_cached(&query.sql).await?;
-        let values = encode(&query.parameters, statement.params())?;
+        let statement = self
+            .client()?
+            .prepare_cached(&query.sql)
+            .await
+            .map_err(|source| self.database_error(source))?;
+        let values = encode(&query.parameters, statement.params())
+            .map_err(|error| self.driver_error(error))?;
         let parameters = references(&values);
-        let rows_affected = self.client()?.execute(&statement, &parameters).await?;
+        let rows_affected = self
+            .client()?
+            .execute(&statement, &parameters)
+            .await
+            .map_err(|source| self.database_error(source))?;
         Ok(ExecuteResult { rows_affected })
     }
 
@@ -40,16 +68,23 @@ impl Executor for PostgresTransaction {
         &self,
         query: &CompiledQuery,
     ) -> Result<QueryResult<Self::Row>, Self::Error> {
-        let statement = self.client()?.prepare_cached(&query.sql).await?;
-        let values = encode(&query.parameters, statement.params())?;
+        let statement = self
+            .client()?
+            .prepare_cached(&query.sql)
+            .await
+            .map_err(|source| self.database_error(source))?;
+        let values = encode(&query.parameters, statement.params())
+            .map_err(|error| self.driver_error(error))?;
         let parameters = references(&values);
         let rows = self
             .client()?
             .query(&statement, &parameters)
-            .await?
+            .await
+            .map_err(|source| self.database_error(source))?
             .into_iter()
             .map(PostgresRow::decode)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| self.driver_error(error))?;
         Ok(QueryResult { rows })
     }
 }
@@ -57,13 +92,19 @@ impl Executor for PostgresTransaction {
 #[async_trait]
 impl Transaction for PostgresTransaction {
     async fn commit(mut self) -> Result<(), Self::Error> {
-        self.client()?.batch_execute("COMMIT").await?;
+        self.client()?
+            .batch_execute("COMMIT")
+            .await
+            .map_err(|source| self.database_error(source))?;
         self.completed = true;
         Ok(())
     }
 
     async fn rollback(mut self) -> Result<(), Self::Error> {
-        self.client()?.batch_execute("ROLLBACK").await?;
+        self.client()?
+            .batch_execute("ROLLBACK")
+            .await
+            .map_err(|source| self.database_error(source))?;
         self.completed = true;
         Ok(())
     }
@@ -77,10 +118,14 @@ impl Drop for PostgresTransaction {
         let Some(client) = self.client.take() else {
             return;
         };
+        let metrics = Arc::clone(&self.metrics);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
                 let _client = client;
-                let _ = _client.batch_execute("ROLLBACK").await;
+                if let Err(source) = _client.batch_execute("ROLLBACK").await {
+                    let error = PostgresError::Database(source);
+                    metrics.record_error(error.retry_class());
+                }
             });
         }
     }

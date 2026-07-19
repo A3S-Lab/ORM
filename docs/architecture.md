@@ -43,13 +43,31 @@ Nested work uses `SqliteTransaction::savepoint`. A savepoint owns a second opera
 
 Extended values remain explicit variants across the entire path: UUID, JSON, date/time, timestamp, timestamp with time zone, Decimal, and arrays are never converted to display strings by the PostgreSQL driver. `SqlArray<T>` separates SQL arrays from the `Vec<u8>` bytea representation. Array parameters are converted against the server-inferred element type with indexed conversion errors, and nullable array elements remain nullable during round trips.
 
-`from_pool` accepts pools constructed with deployment-specific TLS connectors. `connect_no_tls` is a convenience for local development and explicitly does not choose a production TLS policy. Transactions retain one pooled connection from `BEGIN` through completion; cancellation cleanup retains that connection until rollback finishes.
+`from_pool` accepts pools constructed with deployment-specific TLS connectors.
+`connect_no_tls` is a convenience for local development.
+`connect_tls` builds a rustls pool from validated in-memory CA and optional
+client-identity PEM. Rotation health-checks a candidate before atomically
+replacing the active pool; checked-out clients may finish while the prior pool
+is closed to new acquisitions. PEM and connection URLs are excluded from
+metrics and debug output.
+
+The executor measures acquisition, health, failure class, and rotation without
+high-cardinality labels. Pool status is eventually consistent by design.
+Transactions retain one measured pooled connection from `BEGIN` through
+completion. Typed isolation/access options are part of the static `BEGIN`
+statement, while timeouts use transaction-local configuration. Cancellation
+cleanup retains the connection until rollback finishes.
 
 ## Migrations
 
 The `migration` module validates definitions, sorts versions deterministically, and computes SHA-256 checksums before invoking a backend. The backend contract performs reconciliation and execution as one locked operation.
 
-SQLite uses the executor's shared connection gate plus `BEGIN IMMEDIATE`. PostgreSQL uses `pg_advisory_xact_lock` on the same transaction that executes migrations. Both backends create the history table, compare every applied checksum, execute pending SQL, and insert history rows within one transaction. Database errors therefore cannot leave schema changes recorded only partially.
+SQLite uses the executor's shared connection gate plus `BEGIN IMMEDIATE`.
+PostgreSQL uses `pg_advisory_xact_lock` on the same transaction that executes
+migrations, with a validated transaction-local lock deadline. Both backends
+create the history table, compare every applied checksum, execute pending SQL,
+and insert history rows within one transaction. Database errors therefore
+cannot leave schema changes recorded only partially.
 
 ## Safety boundaries
 

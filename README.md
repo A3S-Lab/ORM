@@ -66,6 +66,7 @@ assert_eq!(
 - **Typed Results**: Decode scalar, tuple, nullable, array, and extended database values
 - **Async Drivers**: Run non-blocking SQLite and pooled PostgreSQL operations on Tokio
 - **Safe Transactions**: Roll back scoped work on errors and task cancellation
+- **PostgreSQL HA Controls**: Select transaction semantics, bound pool waits, classify retryable failures, observe health, and rotate verified TLS pools
 - **Migrations**: Apply locked, atomic, checksummed migrations
 - **Extensible Runtime**: Add another database through the public `Executor` contract
 
@@ -93,7 +94,7 @@ Pin the released Git tag:
 
 ```toml
 [dependencies]
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0" }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -101,13 +102,13 @@ SQLite is enabled by default. For a compile-only query builder without a
 bundled driver:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0", default-features = false }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false }
 ```
 
 For PostgreSQL:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.1.0", default-features = false, features = ["postgres"] }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false, features = ["postgres"] }
 ```
 
 The `postgres` feature includes UUID, JSON/JSONB, Chrono date/time types,
@@ -188,8 +189,16 @@ let database = Database::new(PostgresDialect, executor);
 ```
 
 `connect_no_tls` is intended for local or separately secured connections.
-Production applications should construct a Deadpool pool with their required
-TLS connector and pass it to `PostgresExecutor::from_pool`.
+Production applications can use `connect_tls` with in-memory
+`PostgresTlsOptions`, then atomically install verified replacement certificate
+material through `rotate_tls`.
+
+`PostgresTransactionOptions` selects isolation, read-only mode, and
+transaction-local statement, lock, and idle timeouts. `PostgresPoolOptions`
+bounds pool acquisition/creation/recycling. Stable label-free snapshots expose
+pool saturation, acquisition latency, health, failure classes, and certificate
+pool generations. See [PostgreSQL HA Controls](docs/postgres-ha.md) for the
+complete deployment and retry contract.
 
 ## Migrations
 
@@ -215,8 +224,10 @@ println!("applied: {:?}", report.applied);
 ```
 
 SQLite coordinates migrators through its connection gate and
-`BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock. The
-migration SQL and history entry commit atomically.
+`BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock with a
+bounded configurable deadline. The migration SQL and history entry commit
+atomically. Production rolling deployments should follow the documented
+expand/migrate/verify/contract phases.
 
 ## Architecture
 
@@ -241,9 +252,12 @@ extension points.
 ## Development
 
 The integration suite executes SQL against real databases. SQLite tests use
-actual in-memory and temporary file databases. PostgreSQL tests run against a
-PostgreSQL 17 service and exercise schema creation, prepared queries, typed
-round trips, migrations, transactions, rollback, and cancellation cleanup.
+actual in-memory and temporary file databases. PostgreSQL tests run against
+PostgreSQL 17 services and exercise schema creation, prepared queries, typed
+round trips, migrations, transactions, rollback, cancellation cleanup,
+concurrent serializable writers, pool exhaustion, failover-like disconnects,
+migration contention, mixed-version expand/contract compatibility, and
+generated-CA TLS rotation.
 
 CI runs the full feature matrix with `cargo llvm-cov` and fails when line
 coverage falls below 90%.
