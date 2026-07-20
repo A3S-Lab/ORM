@@ -17,7 +17,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -33,7 +33,7 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
@@ -43,7 +43,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit --deny warnings
 
@@ -66,7 +66,7 @@ jobs:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
       A3S_ORM_POSTGRES_TLS_URL: postgres://postgres:postgres@127.0.0.1:5433/a3s_orm?sslmode=require
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Start verified-TLS PostgreSQL
@@ -100,7 +100,7 @@ jobs:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
       A3S_ORM_POSTGRES_TLS_URL: postgres://postgres:postgres@127.0.0.1:5433/a3s_orm?sslmode=require
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
