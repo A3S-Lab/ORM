@@ -31,7 +31,7 @@ jobs:
     env:
       A3S_ORM_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/a3s_orm
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
