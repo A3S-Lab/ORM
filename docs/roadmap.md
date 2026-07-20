@@ -16,8 +16,12 @@ The project is being developed incrementally. Completed items describe implement
 - Pooled PostgreSQL execution with prepared statement caching.
 - PostgreSQL scalar/null decoding and target-aware integer parameters.
 - Cancellation-safe scoped PostgreSQL transactions.
+- Typed PostgreSQL isolation, read-only, statement, lock, and idle transaction controls.
+- Bounded PostgreSQL pools with health, saturation, acquisition latency, and stable failure metrics.
+- Verified rustls PostgreSQL connections with redacted in-memory certificate rotation.
+- Typed PostgreSQL retry classification for serialization, deadlock, lock contention, failover, connection loss, pool saturation, and permanent errors.
 - Deterministic SHA-256 migration validation and drift detection.
-- Atomic, concurrency-locked SQLite and PostgreSQL migration backends.
+- Atomic, bounded-lock SQLite and PostgreSQL migration backends plus documented expand/contract deployments.
 - Typed CTEs, scalar and `IN` subqueries, and correlated `EXISTS`.
 - Selection aliases, basic aggregates, grouping, and having clauses.
 - PostgreSQL UUID, JSON/JSONB, temporal, Numeric, and nullable array round trips.

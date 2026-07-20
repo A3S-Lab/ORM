@@ -24,8 +24,11 @@ pub use compiler::{CompiledQuery, Dialect, MysqlDialect, PostgresDialect, Sqlite
 pub use decode::{DecodeError, FromRow, FromValue, Row};
 #[cfg(feature = "postgres")]
 pub use drivers::postgres::{
-    PostgresError, PostgresExecutor, PostgresMigrationError, PostgresRow, PostgresTransaction,
-    PostgresTransactionError,
+    PostgresError, PostgresExecutor, PostgresIsolationLevel, PostgresMigrationError,
+    PostgresMigrationOptions, PostgresOptionsError, PostgresPoolHealth,
+    PostgresPoolMetricsSnapshot, PostgresPoolOptions, PostgresPoolStatus, PostgresRetryClass,
+    PostgresRow, PostgresTlsError, PostgresTlsOptions, PostgresTransaction,
+    PostgresTransactionAccessMode, PostgresTransactionError, PostgresTransactionOptions,
 };
 #[cfg(feature = "sqlite")]
 pub use drivers::sqlite::{
