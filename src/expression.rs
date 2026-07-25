@@ -2,6 +2,22 @@ use std::marker::PhantomData;
 
 use crate::value::{IntoSqlValue, Value};
 
+mod comparison {
+    pub trait Sealed<Rhs> {}
+
+    impl<T> Sealed<T> for T {}
+    impl<T> Sealed<Option<T>> for T {}
+    impl<T> Sealed<T> for Option<T> {}
+}
+
+/// Marks SQL value types that can be compared without discarding their base
+/// type, including nullable/non-nullable forms of the same type.
+pub trait SqlComparable<Rhs>: comparison::Sealed<Rhs> {}
+
+impl<T> SqlComparable<T> for T {}
+impl<T> SqlComparable<Option<T>> for T {}
+impl<T> SqlComparable<T> for Option<T> {}
+
 #[derive(Clone, Debug)]
 pub struct SelectSubquery(pub(crate) Box<crate::ast::SelectNode>);
 
@@ -17,6 +33,8 @@ pub enum Expression {
         name: &'static str,
         arguments: Vec<Expression>,
     },
+    Coalesce(Vec<Expression>),
+    Least(Vec<Expression>),
     Cast {
         expression: Box<Expression>,
         sql_type: &'static str,
@@ -214,8 +232,64 @@ impl<T, V> Column<T, V> {
         )
     }
 
-    pub fn eq_column<OtherTable>(self, other: Column<OtherTable, V>) -> Expression {
+    pub fn eq_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
         self.compare(BinaryOperator::Eq, other.expression())
+    }
+
+    pub fn ne_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
+        self.compare(BinaryOperator::NotEq, other.expression())
+    }
+
+    pub fn gt_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
+        self.compare(BinaryOperator::GreaterThan, other.expression())
+    }
+
+    pub fn gte_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
+        self.compare(BinaryOperator::GreaterThanOrEq, other.expression())
+    }
+
+    pub fn lt_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
+        self.compare(BinaryOperator::LessThan, other.expression())
+    }
+
+    pub fn lte_column<OtherTable, OtherValue>(
+        self,
+        other: Column<OtherTable, OtherValue>,
+    ) -> Expression
+    where
+        V: SqlComparable<OtherValue>,
+    {
+        self.compare(BinaryOperator::LessThanOrEq, other.expression())
     }
 
     pub fn eq_subquery<Source: crate::Table>(

@@ -1,4 +1,5 @@
 use crate::expression::{Expression, OrderDirection};
+use crate::query::PostgresTableLockMode;
 use crate::value::Value;
 
 #[derive(Clone, Debug)]
@@ -26,8 +27,17 @@ pub(crate) struct SelectNode {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SelectLockNode {
+    pub strength: SelectLockStrength,
     pub tables: Vec<&'static str>,
     pub wait: SelectLockWait,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SelectLockStrength {
+    Update,
+    NoKeyUpdate,
+    Share,
+    KeyShare,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -125,6 +135,13 @@ pub(crate) struct DeleteNode {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct TableLockNode {
+    pub table: TableNode,
+    pub mode: PostgresTableLockMode,
+    pub no_wait: bool,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct Assignment {
     pub table: &'static str,
     pub column: &'static str,
@@ -137,4 +154,5 @@ pub(crate) enum QueryNode {
     Insert(InsertNode),
     Update(UpdateNode),
     Delete(DeleteNode),
+    TableLock(TableLockNode),
 }

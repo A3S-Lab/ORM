@@ -40,17 +40,20 @@ pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
 pub use expression::{
-    exists, not, Column, Expression, OrderDirection, SelectionExt, WindowBoundary, WindowFrame,
-    WindowFrameUnits,
+    exists, not, Column, Expression, OrderDirection, SelectionExt, SqlComparable, WindowBoundary,
+    WindowFrame, WindowFrameUnits,
 };
-pub use function::{bound, cast, count, count_all, max, min, sql_function, TypedExpression};
+pub use function::{
+    bound, cast, coalesce, count, count_all, least, max, min, scalar_subquery, sql_function,
+    TypedExpression,
+};
 pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
     MigrationReport, Migrator, PreparedMigration,
 };
 pub use query::{
-    delete_from, insert_into, select_from, select_from_as, sql_query, update_table, ConflictTarget,
-    InsertRow, Query, SqlQuery,
+    delete_from, insert_into, lock_table, select_from, select_from_as, sql_query, update_table,
+    ConflictTarget, InsertRow, PostgresTableLockMode, Query, SqlQuery, TableLockQuery,
 };
 pub use schema::{Table, TableRef};
 pub use value::{IntoSqlValue, SqlArray, Value};
@@ -92,6 +95,18 @@ pub use window::{dense_rank, rank, row_number, WindowExpression};
 /// orm_table! { struct Pet => "pet" { name: String => "name" } }
 ///
 /// let _ = update_table::<Person>().set(Pet::name(), "wrong table");
+/// ```
+///
+/// Column comparisons preserve the declared SQL value family, including
+/// nullable and non-nullable forms of the same base type:
+///
+/// ```compile_fail
+/// use a3s_orm::orm_table;
+///
+/// orm_table! { struct Person => "person" { id: i64 => "id" } }
+/// orm_table! { struct Pet => "pet" { name: String => "name" } }
+///
+/// let _ = Person::id().eq_column(Pet::name());
 /// ```
 #[macro_export]
 macro_rules! orm_table {

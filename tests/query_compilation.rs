@@ -1,9 +1,10 @@
 use a3s_orm::expression::Selection;
 use a3s_orm::{
-    bound, cast, count, delete_from, dense_rank, exists, insert_into, max, min, not, orm_table,
-    rank, row_number, select_from, select_from_as, sql_function, sql_query, update_table, Dialect,
-    InsertRow, OrderDirection, PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
-    WindowBoundary, WindowFrameUnits,
+    bound, cast, coalesce, count, delete_from, dense_rank, exists, insert_into, least, lock_table,
+    max, min, not, orm_table, rank, row_number, scalar_subquery, select_from, select_from_as,
+    sql_function, sql_query, update_table, Dialect, InsertRow, OrderDirection, PostgresDialect,
+    PostgresTableLockMode, Query, SelectionExt, SqliteDialect, Value, WindowBoundary,
+    WindowFrameUnits,
 };
 
 orm_table! {
@@ -102,11 +103,27 @@ fn compiles_postgres_row_locking_and_rejects_unsupported_dialects() {
 
     let no_wait = select_from::<Person>()
         .select(Person::id())
-        .for_update()
+        .for_no_key_update()
         .no_wait()
         .compile(&PostgresDialect)
         .unwrap();
-    assert!(no_wait.sql.ends_with("for update nowait"));
+    assert!(no_wait.sql.ends_with("for no key update nowait"));
+
+    let shared = select_from::<Person>()
+        .select(Person::id())
+        .inner_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+        .for_share_of::<Person>()
+        .for_share_of::<Pet>()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert!(shared.sql.ends_with("for share of \"person\", \"pet\""));
+
+    let key_shared = select_from::<Person>()
+        .select(Person::id())
+        .for_key_share()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert!(key_shared.sql.ends_with("for key share"));
 
     let unsupported = select_from::<Person>()
         .select(Person::id())
@@ -164,6 +181,51 @@ fn compiles_postgres_row_locking_and_rejects_unsupported_dialects() {
     assert!(locked_operand
         .to_string()
         .contains("operands with CTE, ordering, limit, offset, or row locking"));
+}
+
+#[test]
+fn compiles_typed_postgres_table_locks_and_rejects_unsupported_dialects() {
+    let query = lock_table::<Person>(PostgresTableLockMode::ShareRowExclusive)
+        .no_wait()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        query.sql,
+        "lock table \"person\" in share row exclusive mode nowait"
+    );
+    assert!(query.parameters.is_empty());
+
+    let unsupported = lock_table::<Person>(PostgresTableLockMode::AccessExclusive)
+        .compile(&SqliteDialect)
+        .unwrap_err();
+    assert!(unsupported
+        .to_string()
+        .contains("does not support table locking"));
+
+    for (mode, sql_mode) in [
+        (PostgresTableLockMode::AccessShare, "access share"),
+        (PostgresTableLockMode::RowShare, "row share"),
+        (PostgresTableLockMode::RowExclusive, "row exclusive"),
+        (
+            PostgresTableLockMode::ShareUpdateExclusive,
+            "share update exclusive",
+        ),
+        (PostgresTableLockMode::Share, "share"),
+        (
+            PostgresTableLockMode::ShareRowExclusive,
+            "share row exclusive",
+        ),
+        (PostgresTableLockMode::Exclusive, "exclusive"),
+        (PostgresTableLockMode::AccessExclusive, "access exclusive"),
+    ] {
+        let compiled = lock_table::<Person>(mode)
+            .compile(&PostgresDialect)
+            .unwrap();
+        assert_eq!(
+            compiled.sql,
+            format!("lock table \"person\" in {sql_mode} mode")
+        );
+    }
 }
 
 #[test]
@@ -501,6 +563,39 @@ fn compiles_scalar_subqueries_exists_and_continuous_parameters() {
         query.parameters,
         vec![Value::String("A%".to_owned()), Value::I64(18)]
     );
+}
+
+#[test]
+fn composes_column_comparisons_scalar_subqueries_and_expression_ordering() {
+    let minimum_pet_id = scalar_subquery(
+        select_from::<Pet>()
+            .select(min(Pet::id()))
+            .filter(Pet::owner_id().eq_column(Person::id())),
+    );
+    let deadline = least::<i64>([
+        coalesce::<i64>([minimum_pet_id.expression(), Person::id().expression()]).expression(),
+        Person::id().expression(),
+    ]);
+    let query = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::id().ne_column(Person::manager_id()))
+        .filter(Person::age().lt_column(Person::age()))
+        .order_by_expression(deadline, OrderDirection::Asc)
+        .compile(&PostgresDialect)
+        .unwrap();
+
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"id\" from \"person\" where ((\"person\".\"id\" <> \"person\".\"manager_id\") and (\"person\".\"age\" < \"person\".\"age\")) order by least(coalesce((select \"min\"(\"pet\".\"id\") from \"pet\" where (\"pet\".\"owner_id\" = \"person\".\"id\")), \"person\".\"id\"), \"person\".\"id\") asc"
+    );
+    assert!(query.parameters.is_empty());
+
+    assert!(select_from::<Person>()
+        .select(coalesce::<i64>([]))
+        .compile(&PostgresDialect)
+        .unwrap_err()
+        .to_string()
+        .contains("at least one"));
 }
 
 #[test]

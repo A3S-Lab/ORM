@@ -5,7 +5,7 @@
 ## Module ownership
 
 - `schema` defines table identity and references.
-- `expression` defines typed columns, predicates, and ordering.
+- `expression` defines typed columns, nullability-compatible column predicates, and ordering.
 - `function` owns typed aggregate, scalar-function, bound-value, and cast expressions without coupling them to statement builders.
 - `window` owns typed window specifications and frame boundaries.
 - `query` owns immutable statement builders, split by SQL statement kind.
@@ -19,7 +19,7 @@
 
 The compiler never opens a connection, and drivers never need to understand typed builder state. This allows compile-only use and keeps new runtime integrations local to `drivers`.
 
-CTEs and subqueries remain AST nodes until dialect compilation. They share one compiler parameter accumulator, so PostgreSQL placeholders stay globally ordered across CTEs, outer predicates, and nested queries. CTE names, selection aliases, and function identifiers pass through the same identifier validation and quoting as schema identifiers.
+CTEs, scalar subqueries, and predicate subqueries remain AST nodes until dialect compilation. They share one compiler parameter accumulator, so PostgreSQL placeholders stay globally ordered across CTEs, outer predicates, nested functions, and ordering expressions. CTE names, selection aliases, and function identifiers pass through the same identifier validation and quoting as schema identifiers.
 
 Multi-row inserts store rows separately in the AST. Compilation verifies identical column ordering before flattening values into the shared parameter accumulator. Conflict assignments distinguish bound values from references to the `excluded` row; neither path interpolates application data. Dialects advertise conflict support explicitly, so unsupported MySQL syntax fails rather than being approximated.
 
@@ -30,7 +30,10 @@ Aliases are represented by a distinct table marker. The AST stores the source ta
 SELECT row locks are explicit AST nodes rather than suffix text. The compiler
 validates every `OF` target against the source and joins, rejects locking on set
 operations, and asks the dialect whether row locking is supported before
-emitting `FOR UPDATE`, `NOWAIT`, or `SKIP LOCKED`.
+emitting one of PostgreSQL's four lock strengths plus `NOWAIT` or
+`SKIP LOCKED`. Table-lock nodes carry a typed table marker and closed lock-mode
+enum; unsupported dialects fail compilation instead of receiving approximate
+syntax.
 
 ## SQLite transaction isolation
 

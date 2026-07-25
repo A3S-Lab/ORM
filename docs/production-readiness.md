@@ -44,7 +44,7 @@ This document defines the production-supported scope of `a3s-orm`. It does not c
 - The bundled TLS path uses caller-supplied in-memory PEM material; applications own certificate retrieval and rotation scheduling.
 - Retry classification does not automatically retry transactions or resolve commit ambiguity.
 - Set-operation operands with their own CTE, ordering, limit, or offset are rejected until portable parenthesized operands are implemented.
-- SELECT row locking is currently implemented only for PostgreSQL.
+- SELECT row locking and table locking are currently implemented only for PostgreSQL.
 - Scalar function result types and cast source/target types are explicit caller assertions; names are validated and values remain bound.
 - Migrations are forward-only. Automated down migrations are deliberately not provided.
 - MySQL has a compiler but no bundled runtime driver.

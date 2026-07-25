@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::ast::{
-    JoinKind, JoinNode, QueryNode, SelectLockNode, SelectLockWait, SelectNode, SetOperationKind,
-    SetOperationNode, TableNode,
+    JoinKind, JoinNode, QueryNode, SelectLockNode, SelectLockStrength, SelectLockWait, SelectNode,
+    SetOperationKind, SetOperationNode, TableNode,
 };
 use crate::expression::{Column, Expression, OrderDirection, Selection};
+use crate::function::TypedExpression;
 use crate::schema::{Table, TableRef};
 
 use super::{Cte, Query};
@@ -146,6 +147,17 @@ impl<T: Table, O> SelectQuery<T, O> {
         self
     }
 
+    pub fn order_by_expression<ValueType>(
+        mut self,
+        expression: TypedExpression<ValueType>,
+        direction: OrderDirection,
+    ) -> Self {
+        self.node
+            .order_by
+            .push((expression.expression(), direction));
+        self
+    }
+
     pub fn limit(mut self, limit: u64) -> Self {
         self.node.limit = Some(limit);
         self
@@ -157,25 +169,46 @@ impl<T: Table, O> SelectQuery<T, O> {
     }
 
     /// Lock every selected row with PostgreSQL `FOR UPDATE`.
-    pub fn for_update(mut self) -> Self {
-        self.node.lock = Some(SelectLockNode {
-            tables: Vec::new(),
-            wait: SelectLockWait::Block,
-        });
-        self
+    pub fn for_update(self) -> Self {
+        self.lock_rows(SelectLockStrength::Update)
     }
 
     /// Lock only the named source or join marker with PostgreSQL
     /// `FOR UPDATE OF`.
-    pub fn for_update_of<Locked: Table>(mut self) -> Self {
-        let lock = self.node.lock.get_or_insert_with(|| SelectLockNode {
-            tables: Vec::new(),
-            wait: SelectLockWait::Block,
-        });
-        if !lock.tables.contains(&Locked::NAME) {
-            lock.tables.push(Locked::NAME);
-        }
-        self
+    pub fn for_update_of<Locked: Table>(self) -> Self {
+        self.lock_rows_of::<Locked>(SelectLockStrength::Update)
+    }
+
+    /// Lock every selected row with PostgreSQL `FOR NO KEY UPDATE`.
+    pub fn for_no_key_update(self) -> Self {
+        self.lock_rows(SelectLockStrength::NoKeyUpdate)
+    }
+
+    /// Lock only the named source or join marker with PostgreSQL
+    /// `FOR NO KEY UPDATE OF`.
+    pub fn for_no_key_update_of<Locked: Table>(self) -> Self {
+        self.lock_rows_of::<Locked>(SelectLockStrength::NoKeyUpdate)
+    }
+
+    /// Lock every selected row with PostgreSQL `FOR SHARE`.
+    pub fn for_share(self) -> Self {
+        self.lock_rows(SelectLockStrength::Share)
+    }
+
+    /// Lock only the named source or join marker with PostgreSQL `FOR SHARE OF`.
+    pub fn for_share_of<Locked: Table>(self) -> Self {
+        self.lock_rows_of::<Locked>(SelectLockStrength::Share)
+    }
+
+    /// Lock every selected row with PostgreSQL `FOR KEY SHARE`.
+    pub fn for_key_share(self) -> Self {
+        self.lock_rows(SelectLockStrength::KeyShare)
+    }
+
+    /// Lock only the named source or join marker with PostgreSQL
+    /// `FOR KEY SHARE OF`.
+    pub fn for_key_share_of<Locked: Table>(self) -> Self {
+        self.lock_rows_of::<Locked>(SelectLockStrength::KeyShare)
     }
 
     /// Fail instead of waiting for a conflicting row lock.
@@ -241,9 +274,32 @@ impl<T: Table, O> SelectQuery<T, O> {
 
     fn lock_mut(&mut self) -> &mut SelectLockNode {
         self.node.lock.get_or_insert_with(|| SelectLockNode {
+            strength: SelectLockStrength::Update,
             tables: Vec::new(),
             wait: SelectLockWait::Block,
         })
+    }
+
+    fn lock_rows(mut self, strength: SelectLockStrength) -> Self {
+        self.node.lock = Some(SelectLockNode {
+            strength,
+            tables: Vec::new(),
+            wait: SelectLockWait::Block,
+        });
+        self
+    }
+
+    fn lock_rows_of<Locked: Table>(mut self, strength: SelectLockStrength) -> Self {
+        let lock = self.lock_mut();
+        if lock.strength != strength {
+            lock.strength = strength;
+            lock.tables.clear();
+            lock.wait = SelectLockWait::Block;
+        }
+        if !lock.tables.contains(&Locked::NAME) {
+            lock.tables.push(Locked::NAME);
+        }
+        self
     }
 
     pub(crate) fn into_node(self) -> SelectNode {
