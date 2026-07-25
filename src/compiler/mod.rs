@@ -4,15 +4,18 @@ mod validation;
 pub use dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
 use crate::ast::{
-    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectNode,
-    SetOperationKind, TableNode, UpdateNode,
+    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectLockWait,
+    SelectNode, SetOperationKind, TableNode, UpdateNode,
 };
 use crate::error::{Error, Result};
 use crate::expression::{
     BinaryOperator, Expression, OrderDirection, UnaryOperator, WindowBoundary, WindowFrameUnits,
 };
 use crate::value::Value;
-use validation::{validate_identifier, verify_assignments, verify_insert_rows};
+use validation::{
+    validate_identifier, validate_sql_type, verify_assignments, verify_insert_rows,
+    verify_select_lock,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledQuery {
@@ -49,6 +52,7 @@ impl<D: Dialect> Compiler<'_, D> {
         if node.selections.is_empty() {
             return Err(Error::EmptySelection);
         }
+        verify_select_lock(&node)?;
         if !node.ctes.is_empty() {
             let mut names = std::collections::HashSet::with_capacity(node.ctes.len());
             for cte in &node.ctes {
@@ -101,6 +105,7 @@ impl<D: Dialect> Compiler<'_, D> {
                 || !operation.query.order_by.is_empty()
                 || operation.query.limit.is_some()
                 || operation.query.offset.is_some()
+                || operation.query.lock.is_some()
             {
                 return Err(Error::UnsupportedSetOperand);
             }
@@ -132,6 +137,29 @@ impl<D: Dialect> Compiler<'_, D> {
         if let Some(offset) = node.offset {
             self.sql.push_str(" offset ");
             self.parameter(Value::U64(offset));
+        }
+        if let Some(lock) = node.lock {
+            if !self.dialect.supports_select_row_locking() {
+                return Err(Error::Compilation(format!(
+                    "{} does not support select row locking",
+                    self.dialect.name()
+                )));
+            }
+            self.sql.push_str(" for update");
+            if !lock.tables.is_empty() {
+                self.sql.push_str(" of ");
+                for (index, table) in lock.tables.iter().enumerate() {
+                    if index > 0 {
+                        self.sql.push_str(", ");
+                    }
+                    self.identifier(table)?;
+                }
+            }
+            match lock.wait {
+                SelectLockWait::Block => {}
+                SelectLockWait::NoWait => self.sql.push_str(" nowait"),
+                SelectLockWait::SkipLocked => self.sql.push_str(" skip locked"),
+            }
         }
         Ok(())
     }
@@ -280,6 +308,17 @@ impl<D: Dialect> Compiler<'_, D> {
                 self.identifier(name)?;
                 self.sql.push('(');
                 self.expression_list(arguments)?;
+                self.sql.push(')');
+            }
+            Expression::Cast {
+                expression,
+                sql_type,
+            } => {
+                validate_sql_type(sql_type)?;
+                self.sql.push_str("cast(");
+                self.expression(expression)?;
+                self.sql.push_str(" as ");
+                self.identifier(sql_type)?;
                 self.sql.push(')');
             }
             Expression::Alias { expression, alias } => {

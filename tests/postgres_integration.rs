@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use a3s_orm::{
-    count_all, insert_into, orm_table, row_number, select_from, Database, Executor, InsertRow,
-    Migration, MigrationError, Migrator, PostgresDialect, PostgresExecutor, Query, SelectionExt,
-    SqlArray,
+    bound, cast, count_all, insert_into, orm_table, row_number, select_from, sql_function,
+    Database, Executor, FromRow, InsertRow, Migration, MigrationError, Migrator, PostgresDialect,
+    PostgresError, PostgresExecutor, Query, SelectionExt, SqlArray, Transaction,
+    TransactionManager,
 };
 
 orm_table! {
@@ -22,10 +23,18 @@ orm_table! {
     }
 }
 
+struct JsonPath;
+
 orm_table! {
     struct UpsertRecord => "a3s_orm_upsert_record" {
         id: i64 => "id",
         value: String => "value",
+    }
+}
+
+orm_table! {
+    struct LockProbe => "a3s_orm_lock_probe" {
+        id: i64 => "id",
     }
 }
 
@@ -291,6 +300,32 @@ async fn executes_typed_queries_against_postgres_pool() {
             amount,
         )]
     );
+    let json_matches = database
+        .fetch_all_as(
+            select_from::<ExtendedValue>()
+                .select(ExtendedValue::id())
+                .filter(
+                    sql_function::<bool>(
+                        "jsonb_path_exists",
+                        [
+                            ExtendedValue::metadata().expression(),
+                            cast::<String, JsonPath>(
+                                cast::<String, String>(
+                                    bound::<String>("$ ? (@.attempt < 3)"),
+                                    "text",
+                                ),
+                                "jsonpath",
+                            )
+                            .expression(),
+                        ],
+                    )
+                    .eq(true),
+                ),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(json_matches, vec![extended_id]);
     let array_values = database
         .fetch_all_as(
             select_from::<ExtendedValue>().select((ExtendedValue::tags(), ExtendedValue::scores())),
@@ -469,4 +504,82 @@ async fn executes_typed_queries_against_postgres_pool() {
         .unwrap()
         .rows;
     assert_eq!(rows, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn postgres_row_and_advisory_locks_preserve_concurrency() {
+    let Some(url) = std::env::var("A3S_ORM_POSTGRES_URL").ok() else {
+        return;
+    };
+    let executor = PostgresExecutor::connect_no_tls(&url, 4).unwrap();
+    let client = executor.pool().get().await.unwrap();
+    client
+        .batch_execute(
+            "drop table if exists a3s_orm_lock_probe;
+             create table a3s_orm_lock_probe (
+                id bigint primary key,
+                value text not null
+             );
+             insert into a3s_orm_lock_probe (id, value)
+             values (1, 'first'), (2, 'second')",
+        )
+        .await
+        .unwrap();
+    drop(client);
+
+    let first = executor.begin().await.unwrap();
+    let first_lock = select_from::<LockProbe>()
+        .select(LockProbe::id())
+        .filter(LockProbe::id().eq(1))
+        .for_update()
+        .compile(&PostgresDialect)
+        .unwrap();
+    let first_rows = first.fetch_all(&first_lock).await.unwrap().rows;
+    assert_eq!(i64::from_row(&first_rows[0]).unwrap(), 1);
+
+    let second = executor.begin().await.unwrap();
+    let next_lock = select_from::<LockProbe>()
+        .select(LockProbe::id())
+        .order_by(LockProbe::id(), a3s_orm::OrderDirection::Asc)
+        .limit(1)
+        .for_update_of::<LockProbe>()
+        .skip_locked()
+        .compile(&PostgresDialect)
+        .unwrap();
+    let next_rows = second.fetch_all(&next_lock).await.unwrap().rows;
+    assert_eq!(i64::from_row(&next_rows[0]).unwrap(), 2);
+    second.commit().await.unwrap();
+    first.commit().await.unwrap();
+
+    let owner = executor.begin().await.unwrap();
+    owner
+        .advisory_xact_lock("a3s.orm.integration", "same-key")
+        .await
+        .unwrap();
+    let contender = executor.clone();
+    let (acquired_tx, mut acquired_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        contender
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    transaction
+                        .advisory_xact_lock("a3s.orm.integration", "same-key")
+                        .await?;
+                    acquired_tx.send(()).expect("lock acquisition receiver");
+                    Ok::<_, PostgresError>(())
+                })
+            })
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut acquired_rx)
+            .await
+            .is_err()
+    );
+    owner.commit().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), &mut acquired_rx)
+        .await
+        .expect("contender acquired released advisory lock")
+        .expect("advisory lock acquisition sender");
+    task.await.unwrap().unwrap();
 }

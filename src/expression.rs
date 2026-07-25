@@ -17,6 +17,10 @@ pub enum Expression {
         name: &'static str,
         arguments: Vec<Expression>,
     },
+    Cast {
+        expression: Box<Expression>,
+        sql_type: &'static str,
+    },
     Alias {
         expression: Box<Expression>,
         alias: &'static str,
@@ -60,6 +64,14 @@ impl Expression {
             }
             expression => Self::Or(vec![expression, other]),
         }
+    }
+}
+
+/// Negate a predicate while retaining its AST and bound parameters.
+pub fn not(expression: Expression) -> Expression {
+    Expression::Unary {
+        operator: UnaryOperator::Not,
+        expression: Box::new(expression),
     }
 }
 

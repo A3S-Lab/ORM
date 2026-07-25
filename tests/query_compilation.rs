@@ -1,8 +1,9 @@
 use a3s_orm::expression::Selection;
 use a3s_orm::{
-    count, delete_from, dense_rank, exists, insert_into, max, min, orm_table, rank, row_number,
-    select_from, select_from_as, sql_query, update_table, Dialect, InsertRow, OrderDirection,
-    PostgresDialect, Query, SelectionExt, SqliteDialect, Value, WindowBoundary, WindowFrameUnits,
+    bound, cast, count, delete_from, dense_rank, exists, insert_into, max, min, not, orm_table,
+    rank, row_number, select_from, select_from_as, sql_function, sql_query, update_table, Dialect,
+    InsertRow, OrderDirection, PostgresDialect, Query, SelectionExt, SqliteDialect, Value,
+    WindowBoundary, WindowFrameUnits,
 };
 
 orm_table! {
@@ -79,6 +80,141 @@ fn compiles_typed_select_join_filter_order_and_pagination() {
             Value::U64(20),
         ]
     );
+}
+
+#[test]
+fn compiles_postgres_row_locking_and_rejects_unsupported_dialects() {
+    let query = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::age().gte(18))
+        .order_by(Person::id(), OrderDirection::Asc)
+        .limit(10)
+        .for_update_of::<Person>()
+        .skip_locked()
+        .compile(&PostgresDialect)
+        .unwrap();
+
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"id\" from \"person\" where (\"person\".\"age\" >= $1) order by \"person\".\"id\" asc limit $2 for update of \"person\" skip locked"
+    );
+    assert_eq!(query.parameters, vec![Value::I64(18), Value::U64(10)]);
+
+    let no_wait = select_from::<Person>()
+        .select(Person::id())
+        .for_update()
+        .no_wait()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert!(no_wait.sql.ends_with("for update nowait"));
+
+    let unsupported = select_from::<Person>()
+        .select(Person::id())
+        .for_update()
+        .compile(&SqliteDialect)
+        .unwrap_err();
+    assert!(unsupported
+        .to_string()
+        .contains("does not support select row locking"));
+
+    let invalid_target = select_from::<Person>()
+        .select(Person::id())
+        .for_update_of::<Pet>()
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(invalid_target.to_string().contains("lock target"));
+
+    let aliases = select_from_as::<Person, PersonAlias>()
+        .select(PersonAlias::id())
+        .inner_join::<Pet>(PersonAlias::id().eq_column(Pet::owner_id()))
+        .for_update_of::<PersonAlias>()
+        .for_update_of::<Pet>()
+        .for_update_of::<Pet>()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert!(aliases.sql.ends_with("for update of \"p\", \"pet\""));
+
+    let implicit_update = select_from::<Person>()
+        .select(Person::id())
+        .skip_locked()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert!(implicit_update.sql.ends_with("for update skip locked"));
+
+    let set_operation = select_from::<Person>()
+        .select(Person::id())
+        .union(select_from::<Person>().select(Person::id()))
+        .for_update()
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(set_operation
+        .to_string()
+        .contains("cannot be combined with set operations"));
+
+    let locked_operand = select_from::<Person>()
+        .select(Person::id())
+        .union(
+            select_from::<Person>()
+                .select(Person::id())
+                .for_update()
+                .no_wait(),
+        )
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(locked_operand
+        .to_string()
+        .contains("operands with CTE, ordering, limit, offset, or row locking"));
+}
+
+#[test]
+fn compiles_nested_typed_functions_casts_and_negation() {
+    struct JsonPath;
+
+    let json_path = cast::<String, JsonPath>(
+        cast::<String, String>(bound::<String>("$.secrets[*] ? (@.version < 3)"), "text"),
+        "jsonpath",
+    );
+    let predicate = sql_function::<bool>(
+        "jsonb_path_exists",
+        [Person::name().expression(), json_path.expression()],
+    )
+    .eq(true);
+    let handled = select_from::<Pet>()
+        .select(Pet::id())
+        .filter(Pet::owner_id().eq_column(Person::id()));
+    let query = select_from::<Person>()
+        .select(Person::id())
+        .filter(predicate)
+        .filter(not(exists(handled)))
+        .compile(&PostgresDialect)
+        .unwrap();
+
+    assert_eq!(
+        query.sql,
+        "select \"person\".\"id\" from \"person\" where ((\"jsonb_path_exists\"(\"person\".\"name\", cast(cast($1 as \"text\") as \"jsonpath\")) = $2) and not (exists (select \"pet\".\"id\" from \"pet\" where (\"pet\".\"owner_id\" = \"person\".\"id\"))))"
+    );
+    assert_eq!(
+        query.parameters,
+        vec![
+            Value::String("$.secrets[*] ? (@.version < 3)".to_owned()),
+            Value::Bool(true),
+        ]
+    );
+
+    let invalid_function = select_from::<Person>()
+        .select(sql_function::<i64>("invalid function", []))
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(invalid_function.to_string().contains("identifier"));
+
+    let invalid_cast = select_from::<Person>()
+        .select(cast::<String, String>(
+            bound::<String>("value"),
+            "text; drop table person",
+        ))
+        .compile(&PostgresDialect)
+        .unwrap_err();
+    assert!(invalid_cast.to_string().contains("SQL type"));
 }
 
 #[test]

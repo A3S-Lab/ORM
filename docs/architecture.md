@@ -6,7 +6,7 @@
 
 - `schema` defines table identity and references.
 - `expression` defines typed columns, predicates, and ordering.
-- `function` owns typed aggregate expressions without coupling them to statement builders.
+- `function` owns typed aggregate, scalar-function, bound-value, and cast expressions without coupling them to statement builders.
 - `window` owns typed window specifications and frame boundaries.
 - `query` owns immutable statement builders, split by SQL statement kind.
 - `ast` is the internal representation shared by builders and compilers. It is not public API.
@@ -23,9 +23,14 @@ CTEs and subqueries remain AST nodes until dialect compilation. They share one c
 
 Multi-row inserts store rows separately in the AST. Compilation verifies identical column ordering before flattening values into the shared parameter accumulator. Conflict assignments distinguish bound values from references to the `excluded` row; neither path interpolates application data. Dialects advertise conflict support explicitly, so unsupported MySQL syntax fails rather than being approximated.
 
-Set operations retain the same Rust output type on both operands and share the compiler parameter accumulator. Window functions are typed selections with explicit partitioning, ordering, and frame nodes. Raw queries form a separate escape hatch: SQL text requires a static lifetime, and dynamic values can only be appended as bound parameters.
+Set operations retain the same Rust output type on both operands and share the compiler parameter accumulator. Window functions are typed selections with explicit partitioning, ordering, and frame nodes. Scalar functions validate their identifiers, casts validate their SQL type names, and nested bound values keep continuous parameter numbering. Raw queries form a separate escape hatch: SQL text requires a static lifetime, and dynamic values can only be appended as bound parameters.
 
 Aliases are represented by a distinct table marker. The AST stores the source table and alias separately while columns are constructed from the alias marker, preventing the invalid combination of an aliased FROM clause with original-table column qualifiers.
+
+SELECT row locks are explicit AST nodes rather than suffix text. The compiler
+validates every `OF` target against the source and joins, rejects locking on set
+operations, and asks the dialect whether row locking is supported before
+emitting `FOR UPDATE`, `NOWAIT`, or `SKIP LOCKED`.
 
 ## SQLite transaction isolation
 
@@ -59,6 +64,11 @@ statement, while timeouts use transaction-local configuration. Cancellation
 cleanup first detaches the connection from the pool, then retains it until
 rollback finishes. If no Tokio runtime remains, closing the detached connection
 lets PostgreSQL roll back without exposing the open session to another caller.
+
+`PostgresTransaction::advisory_xact_lock` is the driver-owned escape from row
+identity: it acquires a transaction-scoped logical lock through a cached,
+parameterized PostgreSQL statement. Applications provide only the namespace
+and key, never SQL text.
 
 ## Migrations
 

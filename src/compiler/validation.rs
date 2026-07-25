@@ -1,4 +1,4 @@
-use crate::ast::{Assignment, ConflictAction, ConflictValue, InsertNode, TableNode};
+use crate::ast::{Assignment, ConflictAction, ConflictValue, InsertNode, SelectNode, TableNode};
 use crate::error::{Error, Result};
 
 pub(super) fn verify_assignments(
@@ -109,6 +109,29 @@ pub(super) fn validate_identifier(identifier: &str) -> Result<()> {
             .is_some_and(|character| character.is_ascii_digit())
     {
         return Err(Error::InvalidIdentifier(identifier.to_owned()));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_sql_type(sql_type: &str) -> Result<()> {
+    validate_identifier(sql_type).map_err(|_| Error::InvalidSqlType(sql_type.to_owned()))
+}
+
+pub(super) fn verify_select_lock(node: &SelectNode) -> Result<()> {
+    let Some(lock) = &node.lock else {
+        return Ok(());
+    };
+    if !node.set_operations.is_empty() {
+        return Err(Error::UnsupportedLockingSetOperation);
+    }
+    let available = std::iter::once(&node.from)
+        .chain(node.joins.iter().map(|join| &join.table))
+        .map(|table| table.alias.unwrap_or(table.name))
+        .collect::<std::collections::HashSet<_>>();
+    for table in &lock.tables {
+        if !available.contains(table) {
+            return Err(Error::InvalidLockTarget((*table).to_owned()));
+        }
     }
     Ok(())
 }
