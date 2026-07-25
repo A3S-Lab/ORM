@@ -2,14 +2,22 @@
 pub enum Error {
     #[error("invalid SQL identifier: {0:?}")]
     InvalidIdentifier(String),
+    #[error("invalid SQL type name: {0:?}")]
+    InvalidSqlType(String),
     #[error("query requires at least one selected expression")]
     EmptySelection,
     #[error("scalar subquery requires exactly one selected expression, found {0}")]
     InvalidScalarSubquery(usize),
     #[error("duplicate common table expression name: {0:?}")]
     DuplicateCte(String),
-    #[error("set-operation operands with CTE, ordering, limit, or offset are not supported")]
+    #[error(
+        "set-operation operands with CTE, ordering, limit, offset, or row locking are not supported"
+    )]
     UnsupportedSetOperand,
+    #[error("select row locking cannot be combined with set operations")]
+    UnsupportedLockingSetOperation,
+    #[error("select lock target {0:?} is not present in the query source or joins")]
+    InvalidLockTarget(String),
     #[error("invalid window frame boundaries")]
     InvalidWindowFrame,
     #[error("raw SQL query cannot be empty")]

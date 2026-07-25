@@ -40,6 +40,25 @@ impl PostgresTransaction {
         self.metrics.record_error(error.retry_class());
         error
     }
+
+    /// Acquire a transaction-scoped PostgreSQL advisory lock for two logical
+    /// string keys. PostgreSQL releases it automatically at transaction end.
+    pub async fn advisory_xact_lock(
+        &self,
+        namespace: &str,
+        key: &str,
+    ) -> Result<(), PostgresError> {
+        let client = self.client()?;
+        let statement = client
+            .prepare_cached("select pg_advisory_xact_lock(hashtext($1), hashtext($2))")
+            .await
+            .map_err(|source| self.database_error(source))?;
+        client
+            .query_one(&statement, &[&namespace, &key])
+            .await
+            .map_err(|source| self.database_error(source))?;
+        Ok(())
+    }
 }
 
 #[async_trait]

@@ -22,6 +22,8 @@ This document defines the production-supported scope of `a3s-orm`. It does not c
 - SQLite savepoint cleanup blocks later outer-transaction work until cleanup finishes.
 - Migrations are ordered, checksummed, bounded-lock, atomic, and reject modified or missing applied versions.
 - PostgreSQL integer and array conversions are range checked.
+- PostgreSQL row-lock clauses validate their targets and unsupported dialects reject them.
+- PostgreSQL logical advisory locks bind both namespace and key and end with the transaction.
 - CI tests no-default, individual extended-type, PostgreSQL-only, and all-feature builds.
 - CI runs compile-fail doctests, strict Clippy, warning-free rustdoc, Rust 1.85 MSRV, cargo-audit, SQLite integration tests, and PostgreSQL 17 integration tests.
 - CI measures all-feature line coverage against real SQLite and PostgreSQL databases and rejects changes below 90%.
@@ -42,6 +44,8 @@ This document defines the production-supported scope of `a3s-orm`. It does not c
 - The bundled TLS path uses caller-supplied in-memory PEM material; applications own certificate retrieval and rotation scheduling.
 - Retry classification does not automatically retry transactions or resolve commit ambiguity.
 - Set-operation operands with their own CTE, ordering, limit, or offset are rejected until portable parenthesized operands are implemented.
+- SELECT row locking is currently implemented only for PostgreSQL.
+- Scalar function result types and cast source/target types are explicit caller assertions; names are validated and values remain bound.
 - Migrations are forward-only. Automated down migrations are deliberately not provided.
 - MySQL has a compiler but no bundled runtime driver.
 - Typed DDL builders, query plugins, custom PostgreSQL domain codecs, and schema code generation are not yet included.

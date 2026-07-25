@@ -62,7 +62,7 @@ assert_eq!(
 - **Typed Schema**: Catch invalid columns, values, and assignments at compile time
 - **Immutable Queries**: Build SELECT, INSERT, UPDATE, and DELETE statements explicitly
 - **Safe Parameters**: Keep runtime values out of generated SQL
-- **Advanced SQL**: Use joins, CTEs, subqueries, aggregates, windows, and set operations
+- **Advanced SQL**: Use joins, CTEs, subqueries, aggregates, windows, set operations, functions, casts, and PostgreSQL row locks
 - **Typed Results**: Decode scalar, tuple, nullable, array, and extended database values
 - **Async Drivers**: Run non-blocking SQLite and pooled PostgreSQL operations on Tokio
 - **Safe Transactions**: Roll back scoped work on errors and task cancellation
@@ -78,6 +78,7 @@ assert_eq!(
 | Bundled async driver | Yes | Yes | No |
 | `RETURNING` | Yes | Yes | Rejected |
 | `ON CONFLICT` | Yes | Yes | Rejected |
+| `FOR UPDATE`, `NOWAIT`, `SKIP LOCKED` | Yes | Rejected | Rejected |
 | Transactions | Yes | Yes | — |
 | Locked migrations | Advisory lock | `BEGIN IMMEDIATE` | — |
 | UUID, JSON, temporal, decimal, arrays | Yes | SQLite-native subset | — |
@@ -139,6 +140,40 @@ let delete = delete_from::<Person>()
 Multi-row inserts use typed `InsertRow<T>` values. PostgreSQL and SQLite also
 support conflict targets, `DO NOTHING`, bound updates, and values from the
 `excluded` row.
+
+### Functions, casts, and PostgreSQL row locks
+
+Scalar functions and casts stay inside the typed expression AST. Function and
+SQL type names are validated; runtime values remain parameters:
+
+```rust
+# use a3s_orm::{bound, cast, orm_table, select_from, sql_function, PostgresDialect, Query};
+# orm_table! { struct Person => "person" { id: i64 => "id", name: String => "name" } }
+let query = select_from::<Person>()
+    .select(Person::id())
+    .filter(
+        sql_function::<i64>("length", [Person::name().expression()])
+            .gt(3),
+    )
+    .filter(
+        cast::<String, i64>(
+            cast::<String, String>(bound::<String>("18"), "text"),
+            "bigint",
+        )
+        .gte(18),
+    )
+    .for_update_of::<Person>()
+    .skip_locked()
+    .compile(&PostgresDialect)?;
+
+assert!(query.sql.ends_with("for update of \"person\" skip locked"));
+# Ok::<(), a3s_orm::Error>(())
+```
+
+`for_update`, `for_update_of`, `no_wait`, and `skip_locked` are rejected by
+dialects that do not advertise SELECT row locking. PostgreSQL transactions
+also expose `advisory_xact_lock(namespace, key)` for parameterized logical
+locks whose target row does not exist yet.
 
 ### Typed results
 
@@ -254,10 +289,10 @@ extension points.
 The integration suite executes SQL against real databases. SQLite tests use
 actual in-memory and temporary file databases. PostgreSQL tests run against
 PostgreSQL 17 services and exercise schema creation, prepared queries, typed
-round trips, migrations, transactions, rollback, cancellation cleanup,
-concurrent serializable writers, pool exhaustion, failover-like disconnects,
-migration contention, mixed-version expand/contract compatibility, and
-generated-CA TLS rotation.
+round trips, migrations, row and advisory locks, transactions, rollback,
+cancellation cleanup, concurrent serializable writers, pool exhaustion,
+failover-like disconnects, migration contention, mixed-version expand/contract
+compatibility, and generated-CA TLS rotation.
 
 CI runs the full feature matrix with `cargo llvm-cov` and fails when line
 coverage falls below 90%.

@@ -40,10 +40,10 @@ pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
 pub use expression::{
-    exists, Column, Expression, OrderDirection, SelectionExt, WindowBoundary, WindowFrame,
+    exists, not, Column, Expression, OrderDirection, SelectionExt, WindowBoundary, WindowFrame,
     WindowFrameUnits,
 };
-pub use function::{count, count_all, max, min, TypedExpression};
+pub use function::{bound, cast, count, count_all, max, min, sql_function, TypedExpression};
 pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
     MigrationReport, Migrator, PreparedMigration,

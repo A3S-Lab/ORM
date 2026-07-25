@@ -30,6 +30,9 @@ The project is being developed incrementally. Completed items describe implement
 - Explicit one/optional result cardinality and bound static raw queries.
 - Typed source and join aliases.
 - Configurable production-safe SQLite connection defaults.
+- Typed scalar functions, bound expressions, validated casts, and predicate negation.
+- PostgreSQL `FOR UPDATE`, targeted row locks, `NOWAIT`, and `SKIP LOCKED`.
+- Parameterized transaction-scoped PostgreSQL advisory locks.
 
 ## Next
 

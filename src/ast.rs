@@ -21,6 +21,21 @@ pub(crate) struct SelectNode {
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     pub distinct: bool,
+    pub lock: Option<SelectLockNode>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SelectLockNode {
+    pub tables: Vec<&'static str>,
+    pub wait: SelectLockWait,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) enum SelectLockWait {
+    #[default]
+    Block,
+    NoWait,
+    SkipLocked,
 }
 
 #[derive(Clone, Debug)]

@@ -4,6 +4,10 @@ pub trait Dialect: Send + Sync {
     fn placeholder(&self, index: usize) -> String;
     fn supports_returning(&self) -> bool;
     fn supports_on_conflict(&self) -> bool;
+    /// Whether the dialect accepts the typed SELECT row-locking clause.
+    fn supports_select_row_locking(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -27,6 +31,10 @@ impl Dialect for PostgresDialect {
     }
 
     fn supports_on_conflict(&self) -> bool {
+        true
+    }
+
+    fn supports_select_row_locking(&self) -> bool {
         true
     }
 }

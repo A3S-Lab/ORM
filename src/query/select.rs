@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::ast::{
-    JoinKind, JoinNode, QueryNode, SelectNode, SetOperationKind, SetOperationNode, TableNode,
+    JoinKind, JoinNode, QueryNode, SelectLockNode, SelectLockWait, SelectNode, SetOperationKind,
+    SetOperationNode, TableNode,
 };
 use crate::expression::{Column, Expression, OrderDirection, Selection};
 use crate::schema::{Table, TableRef};
@@ -45,6 +46,7 @@ impl<T: Table> SelectQuery<T> {
                 limit: None,
                 offset: None,
                 distinct: false,
+                lock: None,
             },
             marker: PhantomData,
         }
@@ -154,6 +156,40 @@ impl<T: Table, O> SelectQuery<T, O> {
         self
     }
 
+    /// Lock every selected row with PostgreSQL `FOR UPDATE`.
+    pub fn for_update(mut self) -> Self {
+        self.node.lock = Some(SelectLockNode {
+            tables: Vec::new(),
+            wait: SelectLockWait::Block,
+        });
+        self
+    }
+
+    /// Lock only the named source or join marker with PostgreSQL
+    /// `FOR UPDATE OF`.
+    pub fn for_update_of<Locked: Table>(mut self) -> Self {
+        let lock = self.node.lock.get_or_insert_with(|| SelectLockNode {
+            tables: Vec::new(),
+            wait: SelectLockWait::Block,
+        });
+        if !lock.tables.contains(&Locked::NAME) {
+            lock.tables.push(Locked::NAME);
+        }
+        self
+    }
+
+    /// Fail instead of waiting for a conflicting row lock.
+    pub fn no_wait(mut self) -> Self {
+        self.lock_mut().wait = SelectLockWait::NoWait;
+        self
+    }
+
+    /// Skip rows currently held by a conflicting row lock.
+    pub fn skip_locked(mut self) -> Self {
+        self.lock_mut().wait = SelectLockWait::SkipLocked;
+        self
+    }
+
     pub fn union<Source: Table>(self, query: SelectQuery<Source, O>) -> Self {
         self.set_operation(SetOperationKind::Union, query)
     }
@@ -201,6 +237,13 @@ impl<T: Table, O> SelectQuery<T, O> {
             query: Box::new(query.node),
         });
         self
+    }
+
+    fn lock_mut(&mut self) -> &mut SelectLockNode {
+        self.node.lock.get_or_insert_with(|| SelectLockNode {
+            tables: Vec::new(),
+            wait: SelectLockWait::Block,
+        })
     }
 
     pub(crate) fn into_node(self) -> SelectNode {
