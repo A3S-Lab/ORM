@@ -8,6 +8,10 @@ pub trait Dialect: Send + Sync {
     fn supports_select_row_locking(&self) -> bool {
         false
     }
+    /// Whether the dialect accepts PostgreSQL-style typed table locks.
+    fn supports_table_locking(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -35,6 +39,10 @@ impl Dialect for PostgresDialect {
     }
 
     fn supports_select_row_locking(&self) -> bool {
+        true
+    }
+
+    fn supports_table_locking(&self) -> bool {
         true
     }
 }

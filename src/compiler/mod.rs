@@ -4,13 +4,14 @@ mod validation;
 pub use dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
 use crate::ast::{
-    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectLockWait,
-    SelectNode, SetOperationKind, TableNode, UpdateNode,
+    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectLockStrength,
+    SelectLockWait, SelectNode, SetOperationKind, TableLockNode, TableNode, UpdateNode,
 };
 use crate::error::{Error, Result};
 use crate::expression::{
     BinaryOperator, Expression, OrderDirection, UnaryOperator, WindowBoundary, WindowFrameUnits,
 };
+use crate::query::PostgresTableLockMode;
 use crate::value::Value;
 use validation::{
     validate_identifier, validate_sql_type, verify_assignments, verify_insert_rows,
@@ -34,6 +35,7 @@ pub(crate) fn compile(query: QueryNode, dialect: &impl Dialect) -> Result<Compil
         QueryNode::Insert(node) => compiler.insert(node)?,
         QueryNode::Update(node) => compiler.update(node)?,
         QueryNode::Delete(node) => compiler.delete(node)?,
+        QueryNode::TableLock(node) => compiler.table_lock(node)?,
     }
     Ok(CompiledQuery {
         sql: compiler.sql,
@@ -145,7 +147,12 @@ impl<D: Dialect> Compiler<'_, D> {
                     self.dialect.name()
                 )));
             }
-            self.sql.push_str(" for update");
+            self.sql.push_str(match lock.strength {
+                SelectLockStrength::Update => " for update",
+                SelectLockStrength::NoKeyUpdate => " for no key update",
+                SelectLockStrength::Share => " for share",
+                SelectLockStrength::KeyShare => " for key share",
+            });
             if !lock.tables.is_empty() {
                 self.sql.push_str(" of ");
                 for (index, table) in lock.tables.iter().enumerate() {
@@ -259,6 +266,33 @@ impl<D: Dialect> Compiler<'_, D> {
         self.returning(&node.returning)
     }
 
+    fn table_lock(&mut self, node: TableLockNode) -> Result<()> {
+        if !self.dialect.supports_table_locking() {
+            return Err(Error::Compilation(format!(
+                "{} does not support table locking",
+                self.dialect.name()
+            )));
+        }
+        self.sql.push_str("lock table ");
+        self.table(&node.table)?;
+        self.sql.push_str(" in ");
+        self.sql.push_str(match node.mode {
+            PostgresTableLockMode::AccessShare => "access share",
+            PostgresTableLockMode::RowShare => "row share",
+            PostgresTableLockMode::RowExclusive => "row exclusive",
+            PostgresTableLockMode::ShareUpdateExclusive => "share update exclusive",
+            PostgresTableLockMode::Share => "share",
+            PostgresTableLockMode::ShareRowExclusive => "share row exclusive",
+            PostgresTableLockMode::Exclusive => "exclusive",
+            PostgresTableLockMode::AccessExclusive => "access exclusive",
+        });
+        self.sql.push_str(" mode");
+        if node.no_wait {
+            self.sql.push_str(" nowait");
+        }
+        Ok(())
+    }
+
     fn returning(&mut self, expressions: &[Expression]) -> Result<()> {
         if expressions.is_empty() {
             return Ok(());
@@ -307,6 +341,26 @@ impl<D: Dialect> Compiler<'_, D> {
             Expression::Function { name, arguments } => {
                 self.identifier(name)?;
                 self.sql.push('(');
+                self.expression_list(arguments)?;
+                self.sql.push(')');
+            }
+            Expression::Coalesce(arguments) => {
+                if arguments.is_empty() {
+                    return Err(Error::Compilation(
+                        "coalesce requires at least one expression".to_owned(),
+                    ));
+                }
+                self.sql.push_str("coalesce(");
+                self.expression_list(arguments)?;
+                self.sql.push(')');
+            }
+            Expression::Least(arguments) => {
+                if arguments.is_empty() {
+                    return Err(Error::Compilation(
+                        "least requires at least one expression".to_owned(),
+                    ));
+                }
+                self.sql.push_str("least(");
                 self.expression_list(arguments)?;
                 self.sql.push(')');
             }

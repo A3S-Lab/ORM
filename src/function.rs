@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::expression::{BinaryOperator, Expression, Selection, SelectionExt};
+use crate::expression::{BinaryOperator, Expression, SelectSubquery, Selection, SelectionExt};
+use crate::query::SelectQuery;
+use crate::schema::Table;
 use crate::value::IntoSqlValue;
 use crate::Column;
 
@@ -105,6 +107,16 @@ pub fn sql_function<V>(
     })
 }
 
+/// Build a typed SQL `COALESCE` expression.
+pub fn coalesce<V>(arguments: impl IntoIterator<Item = Expression>) -> TypedExpression<V> {
+    TypedExpression::new(Expression::Coalesce(arguments.into_iter().collect()))
+}
+
+/// Build a typed SQL `LEAST` expression.
+pub fn least<V>(arguments: impl IntoIterator<Item = Expression>) -> TypedExpression<V> {
+    TypedExpression::new(Expression::Least(arguments.into_iter().collect()))
+}
+
 /// Cast a typed expression to a validated SQL type name.
 ///
 /// When a driver has no native codec for the target type, first cast a bound
@@ -117,4 +129,14 @@ pub fn cast<From, To>(
         expression: Box::new(expression.expression()),
         sql_type,
     })
+}
+
+/// Embed a typed single-column SELECT as a scalar expression.
+///
+/// The compiler validates that custom selections still emit exactly one SQL
+/// expression.
+pub fn scalar_subquery<Source: Table, V>(query: SelectQuery<Source, V>) -> TypedExpression<V> {
+    TypedExpression::new(Expression::Subquery(SelectSubquery(Box::new(
+        query.into_node(),
+    ))))
 }

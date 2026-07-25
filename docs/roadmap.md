@@ -22,7 +22,7 @@ The project is being developed incrementally. Completed items describe implement
 - Typed PostgreSQL retry classification for serialization, deadlock, lock contention, failover, connection loss, pool saturation, and permanent errors.
 - Deterministic SHA-256 migration validation and drift detection.
 - Atomic, bounded-lock SQLite and PostgreSQL migration backends plus documented expand/contract deployments.
-- Typed CTEs, scalar and `IN` subqueries, and correlated `EXISTS`.
+- Typed CTEs, scalar-expression and `IN` subqueries, and correlated `EXISTS`.
 - Selection aliases, basic aggregates, grouping, and having clauses.
 - PostgreSQL UUID, JSON/JSONB, temporal, Numeric, and nullable array round trips.
 - Multi-row inserts and PostgreSQL/SQLite conflict handling.
@@ -31,7 +31,9 @@ The project is being developed incrementally. Completed items describe implement
 - Typed source and join aliases.
 - Configurable production-safe SQLite connection defaults.
 - Typed scalar functions, bound expressions, validated casts, and predicate negation.
-- PostgreSQL `FOR UPDATE`, targeted row locks, `NOWAIT`, and `SKIP LOCKED`.
+- Nullability-compatible typed column comparison operators and expression ordering.
+- All PostgreSQL SELECT row-lock strengths, targeted row locks, `NOWAIT`, and `SKIP LOCKED`.
+- Typed PostgreSQL table-lock modes.
 - Parameterized transaction-scoped PostgreSQL advisory locks.
 
 ## Next

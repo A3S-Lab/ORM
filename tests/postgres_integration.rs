@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use a3s_orm::{
-    bound, cast, count_all, insert_into, orm_table, row_number, select_from, sql_function,
-    Database, Executor, FromRow, InsertRow, Migration, MigrationError, Migrator, PostgresDialect,
-    PostgresError, PostgresExecutor, Query, SelectionExt, SqlArray, Transaction,
+    bound, cast, coalesce, count_all, insert_into, least, lock_table, min, orm_table, row_number,
+    scalar_subquery, select_from, select_from_as, sql_function, Database, Executor, FromRow,
+    InsertRow, Migration, MigrationError, Migrator, OrderDirection, PostgresDialect, PostgresError,
+    PostgresExecutor, PostgresTableLockMode, Query, SelectionExt, SqlArray, Transaction,
     TransactionManager,
 };
 
@@ -70,6 +71,12 @@ fn insert_metric(id: i64, label: &str) -> a3s_orm::CompiledQuery {
 orm_table! {
     struct NarrowMetric => "a3s_orm_metric" {
         small_value: i64 => "small_value",
+    }
+}
+
+orm_table! {
+    struct MetricAlias => "metric_alias" {
+        id: i64 => "id",
     }
 }
 
@@ -246,6 +253,31 @@ async fn executes_typed_queries_against_postgres_pool() {
         .unwrap()
         .rows;
     assert_eq!(total, vec![1_i64]);
+
+    let minimum_metric = scalar_subquery(
+        select_from_as::<Metric, MetricAlias>()
+            .select(min(MetricAlias::id()))
+            .filter(MetricAlias::id().gte(1)),
+    );
+    let composed = database
+        .fetch_all_as(
+            select_from::<Metric>()
+                .select(Metric::id())
+                .inner_join_as::<Metric, MetricAlias>(Metric::id().eq_column(MetricAlias::id()))
+                .filter(Metric::id().lte_column(MetricAlias::id()))
+                .order_by_expression(
+                    least::<i64>([
+                        coalesce::<i64>([minimum_metric.expression(), Metric::id().expression()])
+                            .expression(),
+                        Metric::id().expression(),
+                    ]),
+                    OrderDirection::Asc,
+                ),
+        )
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(composed, vec![1_i64]);
 
     let extended_id = uuid::Uuid::parse_str("018f3f56-8d4a-7c2a-9f13-5ab3d245d701").unwrap();
     let metadata = serde_json::json!({"kind": "production", "attempt": 2});
@@ -550,6 +582,23 @@ async fn postgres_row_and_advisory_locks_preserve_concurrency() {
     assert_eq!(i64::from_row(&next_rows[0]).unwrap(), 2);
     second.commit().await.unwrap();
     first.commit().await.unwrap();
+
+    let table_owner = executor.begin().await.unwrap();
+    let table_lock = lock_table::<LockProbe>(PostgresTableLockMode::ShareRowExclusive)
+        .compile(&PostgresDialect)
+        .unwrap();
+    table_owner.execute(&table_lock).await.unwrap();
+    let shared_row_lock = select_from::<LockProbe>()
+        .select(LockProbe::id())
+        .filter(LockProbe::id().eq(1))
+        .for_share()
+        .compile(&PostgresDialect)
+        .unwrap();
+    assert_eq!(
+        i64::from_row(&table_owner.fetch_all(&shared_row_lock).await.unwrap().rows[0]).unwrap(),
+        1
+    );
+    table_owner.commit().await.unwrap();
 
     let owner = executor.begin().await.unwrap();
     owner

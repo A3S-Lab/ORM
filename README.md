@@ -62,7 +62,7 @@ assert_eq!(
 - **Typed Schema**: Catch invalid columns, values, and assignments at compile time
 - **Immutable Queries**: Build SELECT, INSERT, UPDATE, and DELETE statements explicitly
 - **Safe Parameters**: Keep runtime values out of generated SQL
-- **Advanced SQL**: Use joins, CTEs, subqueries, aggregates, windows, set operations, functions, casts, and PostgreSQL row locks
+- **Advanced SQL**: Use joins, CTEs, subqueries, aggregates, windows, set operations, functions, casts, and PostgreSQL row/table locks
 - **Typed Results**: Decode scalar, tuple, nullable, array, and extended database values
 - **Async Drivers**: Run non-blocking SQLite and pooled PostgreSQL operations on Tokio
 - **Safe Transactions**: Roll back scoped work on errors and task cancellation
@@ -141,16 +141,18 @@ Multi-row inserts use typed `InsertRow<T>` values. PostgreSQL and SQLite also
 support conflict targets, `DO NOTHING`, bound updates, and values from the
 `excluded` row.
 
-### Functions, casts, and PostgreSQL row locks
+### Expressions and PostgreSQL locks
 
 Scalar functions and casts stay inside the typed expression AST. Function and
-SQL type names are validated; runtime values remain parameters:
+SQL type names are validated; runtime values remain parameters. Typed scalar
+subqueries and column comparisons can be composed into filters and ordering:
 
 ```rust
-# use a3s_orm::{bound, cast, orm_table, select_from, sql_function, PostgresDialect, Query};
-# orm_table! { struct Person => "person" { id: i64 => "id", name: String => "name" } }
+# use a3s_orm::{bound, cast, coalesce, min, orm_table, scalar_subquery, select_from, sql_function, OrderDirection, PostgresDialect, Query};
+# orm_table! { struct Person => "person" { id: i64 => "id", manager_id: Option<i64> => "manager_id", name: String => "name" } }
 let query = select_from::<Person>()
     .select(Person::id())
+    .filter(Person::id().ne_column(Person::manager_id()))
     .filter(
         sql_function::<i64>("length", [Person::name().expression()])
             .gt(3),
@@ -162,18 +164,42 @@ let query = select_from::<Person>()
         )
         .gte(18),
     )
-    .for_update_of::<Person>()
+    .order_by_expression(
+        coalesce::<i64>([
+            scalar_subquery(select_from::<Person>().select(min(Person::id())))
+                .expression(),
+            Person::id().expression(),
+        ]),
+        OrderDirection::Asc,
+    )
+    .for_share_of::<Person>()
     .skip_locked()
     .compile(&PostgresDialect)?;
 
-assert!(query.sql.ends_with("for update of \"person\" skip locked"));
+assert!(query.sql.ends_with("for share of \"person\" skip locked"));
 # Ok::<(), a3s_orm::Error>(())
 ```
 
-`for_update`, `for_update_of`, `no_wait`, and `skip_locked` are rejected by
-dialects that do not advertise SELECT row locking. PostgreSQL transactions
-also expose `advisory_xact_lock(namespace, key)` for parameterized logical
-locks whose target row does not exist yet.
+`for_update`, `for_no_key_update`, `for_share`, and `for_key_share` each have
+targeted `*_of` variants and support `no_wait` or `skip_locked`. PostgreSQL
+table locks use a schema marker instead of a string:
+
+```rust
+# use a3s_orm::{lock_table, orm_table, PostgresDialect, PostgresTableLockMode, Query};
+# orm_table! { struct DomainClaim => "domain_claims" { id: i64 => "id" } }
+let query = lock_table::<DomainClaim>(PostgresTableLockMode::ShareRowExclusive)
+    .no_wait()
+    .compile(&PostgresDialect)?;
+assert_eq!(
+    query.sql,
+    "lock table \"domain_claims\" in share row exclusive mode nowait",
+);
+# Ok::<(), a3s_orm::Error>(())
+```
+
+Row and table locks are rejected by unsupported dialects. PostgreSQL
+transactions also expose `advisory_xact_lock(namespace, key)` for
+parameterized logical locks whose target row does not exist yet.
 
 ### Typed results
 
@@ -181,8 +207,9 @@ A selection determines its Rust output type. `fetch_all_as`, `fetch_optional_as`
 and `fetch_one_as` decode that type and enforce the requested cardinality.
 Checked integer conversion reports overflow with the result-column index.
 
-For SQL outside the typed AST, `sql_query::<Output>` accepts reviewed static
-SQL while runtime data enters through `bind`.
+For exceptional SQL outside the typed AST, `sql_query::<Output>` accepts
+reviewed static SQL while runtime data enters through `bind`. Prefer extending
+the typed AST when an application needs a reusable missing capability.
 
 ## Database Drivers
 
