@@ -4,7 +4,9 @@ use std::sync::Arc;
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use rustls::sign::{CertifiedKey, SingleCertAndKey};
 use rustls::{ClientConfig, RootCertStore};
-use tokio_postgres::config::{Host, SslMode};
+#[cfg(unix)]
+use tokio_postgres::config::Host;
+use tokio_postgres::config::SslMode;
 use tokio_postgres::Config;
 use tokio_postgres_rustls::MakeRustlsConnect;
 use zeroize::{Zeroize, Zeroizing};
@@ -55,12 +57,15 @@ impl PostgresTlsOptions {
         if config.get_ssl_mode() != SslMode::Require {
             return Err(PostgresTlsError::TlsNotRequired);
         }
-        if config
-            .get_hosts()
-            .iter()
-            .any(|host| matches!(host, Host::Unix(_)))
+        #[cfg(unix)]
         {
-            return Err(PostgresTlsError::UnixSocket);
+            if config
+                .get_hosts()
+                .iter()
+                .any(|host| matches!(host, Host::Unix(_)))
+            {
+                return Err(PostgresTlsError::UnixSocket);
+            }
         }
         self.validate()
     }
@@ -238,13 +243,31 @@ mod tests {
     }
 
     #[test]
-    fn tls_requires_explicit_sslmode_and_tcp_hosts() {
+    fn tls_requires_explicit_sslmode() {
         let options = PostgresTlsOptions::new(Vec::new());
         let config = "postgres://localhost/database".parse::<Config>().unwrap();
         assert_eq!(
             options.validate_connection_config(&config),
             Err(PostgresTlsError::TlsNotRequired)
         );
+    }
+
+    #[test]
+    fn tls_accepts_tcp_hosts_before_certificate_validation() {
+        let options = PostgresTlsOptions::new(Vec::new());
+        let config = "host=localhost sslmode=require dbname=database"
+            .parse::<Config>()
+            .unwrap();
+        assert_eq!(
+            options.validate_connection_config(&config),
+            Err(PostgresTlsError::EmptyRootCertificates)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tls_rejects_unix_socket_hosts() {
+        let options = PostgresTlsOptions::new(Vec::new());
         let config = "host=/tmp sslmode=require dbname=database"
             .parse::<Config>()
             .unwrap();
