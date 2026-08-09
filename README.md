@@ -1,36 +1,43 @@
-# A3S ORM
-
 <p align="center">
-  <strong>Type-Safe SQL for Rust</strong>
+  <img src="https://raw.githubusercontent.com/A3S-Lab/ORM/main/assets/readme/hero.svg" width="100%" alt="A3S ORM turns typed Rust schemas and predicates into parameterized SQL for async PostgreSQL and SQLite execution">
 </p>
 
 <p align="center">
-  <em>Build explicit, immutable queries and execute them with async PostgreSQL or SQLite drivers</em>
+  <strong>Explicit queries. Compile-time constraints. Async PostgreSQL and SQLite.</strong>
 </p>
 
 <p align="center">
-  <a href="#overview">Overview</a> •
-  <a href="#features">Features</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#database-drivers">Database Drivers</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#development">Development</a>
+  <a href="https://github.com/A3S-Lab/ORM/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/A3S-Lab/ORM/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/A3S-Lab/ORM/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/A3S-Lab/ORM?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;color=5b8cff"></a>
+  <img alt="Rust 1.85 or newer" src="https://img.shields.io/badge/rust-1.85%2B-9b7bff?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-0b1020?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="#the-contract">The contract</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#capability-map">Capabilities</a> ·
+  <a href="#drivers-and-dialects">Drivers</a> ·
+  <a href="#migrations">Migrations</a> ·
+  <a href="#architecture">Architecture</a>
 </p>
 
 ---
 
-## Overview
-
-**A3S ORM** is a type-safe SQL query builder for Rust, inspired by
-[Kysely](https://kysely.dev/). Rust table definitions constrain columns,
-values, and decoded results at compile time. Queries compile into SQL plus
-bound parameters and execute through an async, driver-neutral interface.
+**A3S ORM** is a type-safe, executor-neutral SQL query builder for Rust,
+inspired by [Kysely](https://kysely.dev/). Table declarations constrain
+columns, values, assignments, and decoded results at compile time. Immutable
+builders compile into SQL plus bound parameters, then execute through an async
+driver-neutral interface.
 
 Despite the name, this is not an Active Record framework. Records do not own
-persistence behavior, queries stay explicit, and runtime values are never
+persistence behavior, queries remain visible, and runtime values are never
 interpolated into generated SQL.
 
-### Basic usage
+## The contract
+
+Define the schema once, compose with typed columns, and inspect the exact query
+before it reaches a connection:
 
 ```rust
 use a3s_orm::{orm_table, select_from, OrderDirection, PostgresDialect, Query};
@@ -43,55 +50,35 @@ orm_table! {
     }
 }
 
-let query = select_from::<Person>()
-    .select((Person::id(), Person::name()))
-    .filter(Person::age().gte(18))
-    .order_by(Person::name(), OrderDirection::Asc)
-    .limit(20)
-    .compile(&PostgresDialect)?;
+fn main() -> Result<(), a3s_orm::Error> {
+    let query = select_from::<Person>()
+        .select((Person::id(), Person::name()))
+        .filter(Person::age().gte(18))
+        .order_by(Person::name(), OrderDirection::Asc)
+        .limit(20)
+        .compile(&PostgresDialect)?;
 
-assert_eq!(
-    query.sql,
-    "select \"person\".\"id\", \"person\".\"name\" from \"person\" where (\"person\".\"age\" >= $1) order by \"person\".\"name\" asc limit $2"
-);
-# Ok::<(), a3s_orm::Error>(())
+    println!("sql = {}", query.sql);
+    println!("parameters = {:?}", query.parameters);
+    assert_eq!(query.parameters.len(), 2);
+    Ok(())
+}
 ```
 
-## Features
+```text
+sql = select "person"."id", "person"."name" from "person" where ("person"."age" >= $1) order by "person"."name" asc limit $2
+parameters = [I64(18), U64(20)]
+```
 
-- **Typed Schema**: Catch invalid columns, values, and assignments at compile time
-- **Immutable Queries**: Build SELECT, INSERT, UPDATE, and DELETE statements explicitly
-- **Safe Parameters**: Keep runtime values out of generated SQL
-- **Advanced SQL**: Use joins, CTEs, subqueries, aggregates, windows, set operations, functions, casts, and PostgreSQL row/table locks
-- **Typed Results**: Decode scalar, tuple, nullable, array, and extended database values
-- **Async Drivers**: Run non-blocking SQLite and pooled PostgreSQL operations on Tokio
-- **Safe Transactions**: Roll back scoped work on errors and task cancellation
-- **PostgreSQL HA Controls**: Select transaction semantics, bound pool waits, classify retryable failures, observe health, and rotate verified TLS pools
-- **Migrations**: Apply locked, atomic, checksummed migrations
-- **Extensible Runtime**: Add another database through the public `Executor` contract
+Column ownership and Rust value families are checked before compilation. The
+dialect owns quoting, placeholders, and feature support; unsupported syntax is
+rejected instead of approximated.
 
-### Support matrix
+## Quick start
 
-| Capability | PostgreSQL | SQLite | MySQL |
-| --- | :---: | :---: | :---: |
-| SQL compilation | Yes | Yes | Yes |
-| Bundled async driver | Yes | Yes | No |
-| `RETURNING` | Yes | Yes | Rejected |
-| `ON CONFLICT` | Yes | Yes | Rejected |
-| `FOR UPDATE`, `NOWAIT`, `SKIP LOCKED` | Yes | Rejected | Rejected |
-| Transactions | Yes | Yes | — |
-| Locked migrations | Advisory lock | `BEGIN IMMEDIATE` | — |
-| UUID, JSON, temporal, decimal, arrays | Yes | SQLite-native subset | — |
+### Install
 
-MySQL support currently means SQL generation only; it does not imply a bundled
-runtime driver. See [Production Readiness](docs/production-readiness.md) for the
-precise supported scope and limitations.
-
-## Quick Start
-
-### Installation
-
-Pin the released Git tag:
+SQLite is the default runtime. Pin the released Git tag:
 
 ```toml
 [dependencies]
@@ -99,197 +86,179 @@ a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-SQLite is enabled by default. For a compile-only query builder without a
-bundled driver:
-
-```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false }
-```
-
-For PostgreSQL:
+Enable the bundled PostgreSQL driver instead:
 
 ```toml
 a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false, features = ["postgres"] }
 ```
 
+Or use the query builder and dialect compilers without a bundled runtime:
+
+```toml
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false }
+```
+
 The `postgres` feature includes UUID, JSON/JSONB, Chrono date/time types,
 `rust_decimal::Decimal`, and `SqlArray<T>`.
 
-### Insert, update, and delete
+### Execute a typed SQLite round trip
+
+The default feature is enough for a real in-memory database:
 
 ```rust
-# use a3s_orm::{delete_from, insert_into, orm_table, update_table, PostgresDialect, Query};
-# orm_table! { struct Person => "person" { id: i64 => "id", name: String => "name" } }
-let insert = insert_into::<Person>()
-    .value(Person::id(), 1)
-    .value(Person::name(), "Ada")
-    .returning(Person::id())
-    .compile(&PostgresDialect)?;
+use a3s_orm::{
+    insert_into, orm_table, select_from, Database, SqliteDialect, SqliteExecutor,
+};
 
-let update = update_table::<Person>()
-    .set(Person::name(), "Ada Lovelace")
-    .filter(Person::id().eq(1))
-    .compile(&PostgresDialect)?;
+orm_table! {
+    struct Person => "person" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
 
-let delete = delete_from::<Person>()
-    .filter(Person::id().eq(1))
-    .compile(&PostgresDialect)?;
-# Ok::<(), a3s_orm::Error>(())
-```
-
-Multi-row inserts use typed `InsertRow<T>` values. PostgreSQL and SQLite also
-support conflict targets, `DO NOTHING`, bound updates, and values from the
-`excluded` row.
-
-### Expressions and PostgreSQL locks
-
-Scalar functions and casts stay inside the typed expression AST. Function and
-SQL type names are validated; runtime values remain parameters. Typed scalar
-subqueries and column comparisons can be composed into filters and ordering:
-
-```rust
-# use a3s_orm::{bound, cast, coalesce, min, orm_table, scalar_subquery, select_from, sql_function, OrderDirection, PostgresDialect, Query};
-# orm_table! { struct Person => "person" { id: i64 => "id", manager_id: Option<i64> => "manager_id", name: String => "name" } }
-let query = select_from::<Person>()
-    .select(Person::id())
-    .filter(Person::id().ne_column(Person::manager_id()))
-    .filter(
-        sql_function::<i64>("length", [Person::name().expression()])
-            .gt(3),
-    )
-    .filter(
-        cast::<String, i64>(
-            cast::<String, String>(bound::<String>("18"), "text"),
-            "bigint",
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executor = SqliteExecutor::open_in_memory().await?;
+    executor
+        .execute_schema(
+            "create table person (id integer primary key, name text not null)",
         )
-        .gte(18),
-    )
-    .order_by_expression(
-        coalesce::<i64>([
-            scalar_subquery(select_from::<Person>().select(min(Person::id())))
-                .expression(),
-            Person::id().expression(),
-        ]),
-        OrderDirection::Asc,
-    )
-    .for_share_of::<Person>()
-    .skip_locked()
-    .compile(&PostgresDialect)?;
+        .await?;
 
-assert!(query.sql.ends_with("for share of \"person\" skip locked"));
-# Ok::<(), a3s_orm::Error>(())
+    let database = Database::new(SqliteDialect, executor);
+    database
+        .execute(
+            insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada"),
+        )
+        .await?;
+
+    let name: String = database
+        .fetch_one_as(
+            select_from::<Person>()
+                .select(Person::name())
+                .filter(Person::id().eq(1)),
+        )
+        .await?;
+
+    assert_eq!(name, "Ada");
+    Ok(())
+}
 ```
 
-`for_update`, `for_no_key_update`, `for_share`, and `for_key_share` each have
-targeted `*_of` variants and support `no_wait` or `skip_locked`. PostgreSQL
-table locks use a schema marker instead of a string:
+## Capability map
+
+- **Typed structure** — schema markers constrain columns, joins, filters,
+  inserts, updates, and result decoding.
+- **Composable SQL** — immutable SELECT, INSERT, UPDATE, and DELETE builders
+  cover joins, CTEs, subqueries, aggregates, windows, set operations,
+  functions, casts, and conflict handling.
+- **Explicit concurrency** — PostgreSQL row locks, table locks, advisory locks,
+  transaction isolation, access mode, and timeouts remain typed operations.
+- **Checked results** — scalar, tuple, nullable, array, UUID, JSON, temporal,
+  and decimal values decode through checked conversions.
+- **Cancellation-safe execution** — scoped SQLite and PostgreSQL transactions
+  retain their connection until rollback cleanup completes.
+- **Deterministic migrations** — ordered, checksummed migrations run atomically
+  behind a bounded database lock.
+- **Controlled escape hatch** — `sql_query::<Output>` accepts reviewed static
+  SQL while dynamic values still enter through `bind`.
+
+### PostgreSQL worker queues stay typed
+
+Lock clauses are AST nodes rather than appended SQL strings. Targets are
+checked against the query source, and unsupported dialects return an error:
 
 ```rust
-# use a3s_orm::{lock_table, orm_table, PostgresDialect, PostgresTableLockMode, Query};
-# orm_table! { struct DomainClaim => "domain_claims" { id: i64 => "id" } }
-let query = lock_table::<DomainClaim>(PostgresTableLockMode::ShareRowExclusive)
-    .no_wait()
-    .compile(&PostgresDialect)?;
-assert_eq!(
-    query.sql,
-    "lock table \"domain_claims\" in share row exclusive mode nowait",
-);
-# Ok::<(), a3s_orm::Error>(())
+use a3s_orm::{orm_table, select_from, OrderDirection, PostgresDialect, Query};
+
+orm_table! {
+    struct Job => "jobs" {
+        id: i64 => "id",
+        state: String => "state",
+    }
+}
+
+fn main() -> Result<(), a3s_orm::Error> {
+    let query = select_from::<Job>()
+        .select((Job::id(), Job::state()))
+        .filter(Job::state().eq("ready"))
+        .order_by(Job::id(), OrderDirection::Asc)
+        .limit(1)
+        .for_update_of::<Job>()
+        .skip_locked()
+        .compile(&PostgresDialect)?;
+
+    assert!(query
+        .sql
+        .ends_with("for update of \"jobs\" skip locked"));
+    Ok(())
+}
 ```
 
-Row and table locks are rejected by unsupported dialects. PostgreSQL
-transactions also expose `advisory_xact_lock(namespace, key)` for
-parameterized logical locks whose target row does not exist yet.
+Transaction-scoped `advisory_xact_lock(namespace, key)` covers logical
+resources that do not have a row yet. Retry classification identifies
+serialization, deadlock, lock contention, failover, connection loss, and pool
+saturation without automatically replaying writes. See
+[PostgreSQL HA Controls](docs/postgres-ha.md) for the complete contract.
 
-### Typed results
+## Drivers and dialects
 
-A selection determines its Rust output type. `fetch_all_as`, `fetch_optional_as`,
-and `fetch_one_as` decode that type and enforce the requested cardinality.
-Checked integer conversion reports overflow with the result-column index.
+| Capability | PostgreSQL | SQLite | MySQL |
+| --- | :---: | :---: | :---: |
+| SQL compilation | Yes | Yes | Yes |
+| Bundled async driver | Yes | Yes | No |
+| `RETURNING` | Yes | Yes | Rejected |
+| `ON CONFLICT` | Yes | Yes | Rejected |
+| Row and table locks | Yes | Rejected | Rejected |
+| Transactions | Yes | Yes | — |
+| Locked migrations | Advisory lock | `BEGIN IMMEDIATE` | — |
+| UUID, JSON, temporal, decimal, arrays | Yes | SQLite-native subset | — |
 
-For exceptional SQL outside the typed AST, `sql_query::<Output>` accepts
-reviewed static SQL while runtime data enters through `bind`. Prefer extending
-the typed AST when an application needs a reusable missing capability.
+**SQLite** uses a Tokio-safe single connection. File databases default to WAL,
+foreign-key enforcement, and a five-second busy timeout. Nested savepoints and
+scoped transactions prevent later work from racing cancellation cleanup.
 
-## Database Drivers
+**PostgreSQL** uses a bounded Deadpool pool with prepared-statement caching.
+The driver exposes typed transaction policy, stable label-free health metrics,
+retry classification, verified rustls connections, and health-gated atomic TLS
+pool rotation. `connect_no_tls` is intended for local or separately secured
+connections.
 
-### SQLite
-
-```rust,no_run
-use a3s_orm::{Database, SqliteDialect, SqliteExecutor};
-
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let executor = SqliteExecutor::open("app.db").await?;
-let database = Database::new(SqliteDialect, executor);
-# let _ = database;
-# Ok(())
-# }
-```
-
-File databases default to WAL journaling, foreign-key enforcement, and a
-five-second busy timeout. `SqliteExecutor::open_with_options` allows each policy
-to be changed. In-memory databases use memory journaling.
-
-The driver serializes access to its connection without blocking Tokio. Scoped
-transactions and nested savepoints retain the connection gate until cancellation
-cleanup completes.
-
-### PostgreSQL
-
-```rust,no_run
-use a3s_orm::{Database, PostgresDialect, PostgresExecutor};
-
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let executor = PostgresExecutor::connect_no_tls(
-    "postgres://postgres:postgres@127.0.0.1/app",
-    16,
-)?;
-let database = Database::new(PostgresDialect, executor);
-# let _ = database;
-# Ok(())
-# }
-```
-
-`connect_no_tls` is intended for local or separately secured connections.
-Production applications can use `connect_tls` with in-memory
-`PostgresTlsOptions`, then atomically install verified replacement certificate
-material through `rotate_tls`.
-
-`PostgresTransactionOptions` selects isolation, read-only mode, and
-transaction-local statement, lock, and idle timeouts. `PostgresPoolOptions`
-bounds pool acquisition/creation/recycling. Stable label-free snapshots expose
-pool saturation, acquisition latency, health, failure classes, and certificate
-pool generations. See [PostgreSQL HA Controls](docs/postgres-ha.md) for the
-complete deployment and retry contract.
+MySQL support currently means SQL generation only. It does not imply a bundled
+runtime driver. Read [Production Readiness](docs/production-readiness.md) for
+the precise deployment scope and limitations.
 
 ## Migrations
 
-Migrations are ordered by version, checksummed with SHA-256, and recorded in
-`a3s_orm_migrations`. Re-running an unchanged set is a no-op. Modifying or
+Migrations are sorted by version, checksummed with SHA-256, and recorded in
+`a3s_orm_migrations`. Re-running an unchanged set is a no-op; modifying or
 removing an applied migration is an error.
 
-```rust,no_run
+```rust
 use a3s_orm::{Migration, Migrator, SqliteExecutor};
 
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let executor = SqliteExecutor::open("app.db").await?;
-let report = Migrator::new(executor)
-    .run([Migration::new(
-        "001",
-        "create people",
-        "create table person (id integer primary key, name text not null)",
-    )])
-    .await?;
-println!("applied: {:?}", report.applied);
-# Ok(())
-# }
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executor = SqliteExecutor::open_in_memory().await?;
+    let report = Migrator::new(executor)
+        .run([Migration::new(
+            "001",
+            "create people",
+            "create table person (id integer primary key, name text not null)",
+        )])
+        .await?;
+
+    assert_eq!(report.applied, vec!["001"]);
+    Ok(())
+}
 ```
 
 SQLite coordinates migrators through its connection gate and
 `BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock with a
-bounded configurable deadline. The migration SQL and history entry commit
-atomically. Production rolling deployments should follow the documented
-expand/migrate/verify/contract phases.
+bounded deadline. Migration SQL and its history entry commit atomically.
 
 ## Architecture
 
@@ -302,27 +271,37 @@ typed schema + expressions
           │
      dialect compiler
           │
-      CompiledQuery
+  SQL + bound parameters
           │
  async Executor / driver
 ```
 
-Source is split by responsibility under `compiler/`, `query/`, `drivers/`, and
-`migration/`. See [Architecture](docs/architecture.md) for module ownership and
-extension points.
+The compiler never opens a connection, and drivers never need to understand
+typed builder state. A new dialect implements `Dialect`; a new runtime
+implements `Executor`. See [Architecture](docs/architecture.md) for module
+ownership and extension rules.
+
+## Production boundaries
+
+The library makes unsupported behavior visible rather than silently falling
+back:
+
+- the bundled SQLite executor serializes work on one connection;
+- MySQL has a compiler but no bundled runtime driver;
+- migrations are forward-only;
+- scalar function and cast result types are explicit caller assertions;
+- typed DDL builders, query plugins, custom PostgreSQL domain codecs, and
+  schema code generation are not included yet.
+
+Review [Production Readiness](docs/production-readiness.md) before deployment,
+[PostgreSQL HA Controls](docs/postgres-ha.md) for pool and failover policy, and
+the [Roadmap](docs/roadmap.md) for planned work.
 
 ## Development
 
-The integration suite executes SQL against real databases. SQLite tests use
-actual in-memory and temporary file databases. PostgreSQL tests run against
-PostgreSQL 17 services and exercise schema creation, prepared queries, typed
-round trips, migrations, row and advisory locks, transactions, rollback,
-cancellation cleanup, concurrent serializable writers, pool exhaustion,
-failover-like disconnects, migration contention, mixed-version expand/contract
-compatibility, and generated-CA TLS rotation.
-
-CI runs the full feature matrix with `cargo llvm-cov` and fails when line
-coverage falls below 90%.
+The test suite runs real SQLite databases and PostgreSQL 17 services. CI checks
+the feature matrix, compile-fail doctests, Rust 1.85 MSRV, strict Clippy,
+warning-free rustdoc, dependency advisories, and at least 90% line coverage.
 
 ```bash
 cargo fmt --all -- --check
@@ -339,9 +318,6 @@ A3S_ORM_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:5432/a3s_orm \
   cargo test --all-features
 ```
 
-See [Roadmap](docs/roadmap.md) for planned schema builders, plugins, additional
-codecs, code generation, and the MySQL runtime driver.
-
 ## License
 
-MIT
+[MIT License](https://github.com/A3S-Lab/ORM/blob/main/LICENSE)
