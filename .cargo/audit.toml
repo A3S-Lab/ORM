@@ -1,0 +1,7 @@
+[advisories]
+# rust_decimal 1.42.1 declares rkyv 0.7 as an optional dependency, but A3S ORM
+# disables rust_decimal's defaults and never enables its rkyv feature. Cargo
+# still records that unreachable optional crate in Cargo.lock, so cargo-audit
+# reports RUSTSEC-2026-0235 even though `cargo tree -i rkyv --all-features` is
+# empty. Remove this exception when rust_decimal no longer declares rkyv 0.7.
+ignore = ["RUSTSEC-2026-0235"]

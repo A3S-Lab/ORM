@@ -121,10 +121,19 @@ pub(crate) enum ConflictValue {
 
 #[derive(Clone, Debug)]
 pub(crate) struct UpdateNode {
+    pub ctes: Vec<CteNode>,
     pub table: TableNode,
-    pub assignments: Vec<Assignment>,
+    pub assignments: Vec<UpdateAssignment>,
+    pub from: Vec<TableNode>,
     pub filter: Option<Expression>,
     pub returning: Vec<Expression>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct UpdateAssignment {
+    pub table: &'static str,
+    pub column: &'static str,
+    pub value: Expression,
 }
 
 #[derive(Clone, Debug)]

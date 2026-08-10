@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use a3s_orm::{
     bound, cast, coalesce, count_all, insert_into, least, lock_table, min, orm_table, row_number,
-    scalar_subquery, select_from, select_from_as, sql_function, Database, Executor, FromRow,
-    InsertRow, Migration, MigrationError, Migrator, OrderDirection, PostgresDialect, PostgresError,
-    PostgresExecutor, PostgresTableLockMode, Query, SelectionExt, SqlArray, Transaction,
-    TransactionManager,
+    scalar_subquery, select_from, select_from_as, sql_function, update_table, Database, Executor,
+    FromRow, InsertRow, Migration, MigrationError, Migrator, OrderDirection, PostgresDialect,
+    PostgresError, PostgresExecutor, PostgresTableLockMode, Query, SelectionExt, SqlArray,
+    Transaction, TransactionManager,
 };
 
 orm_table! {
@@ -35,6 +35,14 @@ orm_table! {
 
 orm_table! {
     struct LockProbe => "a3s_orm_lock_probe" {
+        id: i64 => "id",
+        value: String => "value",
+        attempt_count: i32 => "attempt_count",
+    }
+}
+
+orm_table! {
+    struct LockCandidate => "a3s_orm_lock_candidate" {
         id: i64 => "id",
     }
 }
@@ -550,10 +558,11 @@ async fn postgres_row_and_advisory_locks_preserve_concurrency() {
             "drop table if exists a3s_orm_lock_probe;
              create table a3s_orm_lock_probe (
                 id bigint primary key,
-                value text not null
+                value text not null,
+                attempt_count integer not null
              );
-             insert into a3s_orm_lock_probe (id, value)
-             values (1, 'first'), (2, 'second')",
+             insert into a3s_orm_lock_probe (id, value, attempt_count)
+             values (1, 'first', 0), (2, 'second', 0)",
         )
         .await
         .unwrap();
@@ -576,10 +585,18 @@ async fn postgres_row_and_advisory_locks_preserve_concurrency() {
         .limit(1)
         .for_update_of::<LockProbe>()
         .skip_locked()
+        .as_cte::<LockCandidate>();
+    let claim = update_table::<LockProbe>()
+        .with(next_lock)
+        .set(LockProbe::value(), "claimed")
+        .set_expression(LockProbe::attempt_count(), LockProbe::attempt_count() + 1)
+        .from::<LockCandidate>()
+        .filter(LockProbe::id().eq_column(LockCandidate::id()))
+        .returning((LockProbe::id(), LockProbe::attempt_count()))
         .compile(&PostgresDialect)
         .unwrap();
-    let next_rows = second.fetch_all(&next_lock).await.unwrap().rows;
-    assert_eq!(i64::from_row(&next_rows[0]).unwrap(), 2);
+    let claimed_rows = second.fetch_all(&claim).await.unwrap().rows;
+    assert_eq!(<(i64, i32)>::from_row(&claimed_rows[0]).unwrap(), (2, 1));
     second.commit().await.unwrap();
     first.commit().await.unwrap();
 

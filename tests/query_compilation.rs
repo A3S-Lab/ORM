@@ -48,6 +48,12 @@ orm_table! {
 }
 
 orm_table! {
+    pub struct UpdateCandidate => "update_candidate" {
+        id: i64 => "id",
+    }
+}
+
+orm_table! {
     pub struct Pet => "pet" {
         id: i64 => "id",
         owner_id: i64 => "owner_id",
@@ -641,6 +647,51 @@ fn compiles_ctes_before_main_query_and_rejects_invalid_shapes() {
 }
 
 #[test]
+fn compiles_locking_cte_update_from_with_expression_assignment() {
+    let candidates = select_from::<Person>()
+        .select(Person::id())
+        .filter(Person::age().gte(18))
+        .order_by(Person::id(), OrderDirection::Asc)
+        .limit(5)
+        .for_update()
+        .skip_locked()
+        .as_cte::<UpdateCandidate>();
+    let query = update_table::<Person>()
+        .with(candidates)
+        .set_expression(Person::age(), Person::age() + 1)
+        .set(Person::name(), "leased")
+        .from::<UpdateCandidate>()
+        .filter(Person::id().eq_column(UpdateCandidate::id()))
+        .returning((Person::id(), Person::age()))
+        .compile(&PostgresDialect)
+        .unwrap();
+
+    assert_eq!(
+        query.sql,
+        "with \"update_candidate\" as (select \"person\".\"id\" from \"person\" where (\"person\".\"age\" >= $1) order by \"person\".\"id\" asc limit $2 for update skip locked) update \"person\" set \"age\" = (\"person\".\"age\" + $3), \"name\" = $4 from \"update_candidate\" where (\"person\".\"id\" = \"update_candidate\".\"id\") returning \"person\".\"id\", \"person\".\"age\""
+    );
+    assert_eq!(
+        query.parameters,
+        vec![
+            Value::I64(18),
+            Value::U64(5),
+            Value::I64(1),
+            Value::String("leased".to_owned()),
+        ]
+    );
+
+    let unsupported = update_table::<Person>()
+        .set(Person::name(), "leased")
+        .from::<UpdateCandidate>()
+        .filter(Person::id().eq_column(UpdateCandidate::id()))
+        .compile(&a3s_orm::MysqlDialect)
+        .unwrap_err();
+    assert!(unsupported
+        .to_string()
+        .contains("does not support update from"));
+}
+
+#[test]
 fn select_replaces_the_previous_projection_to_preserve_output_type() {
     let query = select_from::<Person>()
         .select(Person::id())
@@ -722,12 +773,15 @@ fn exposes_schema_and_dialect_metadata_and_select_all() {
     assert_eq!(PostgresDialect.placeholder(3), "$3");
     assert!(PostgresDialect.supports_returning());
     assert!(PostgresDialect.supports_on_conflict());
+    assert!(PostgresDialect.supports_update_from());
     assert_eq!(SqliteDialect.name(), "SQLite");
     assert_eq!(SqliteDialect.placeholder(3), "?");
+    assert!(SqliteDialect.supports_update_from());
     assert_eq!(a3s_orm::MysqlDialect.name(), "MySQL");
     assert_eq!(a3s_orm::MysqlDialect.identifier_quote(), '`');
     assert!(!a3s_orm::MysqlDialect.supports_returning());
     assert!(!a3s_orm::MysqlDialect.supports_on_conflict());
+    assert!(!a3s_orm::MysqlDialect.supports_update_from());
 
     assert_eq!(
         select_from::<Person>()

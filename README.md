@@ -82,20 +82,20 @@ SQLite is the default runtime. Pin the released Git tag:
 
 ```toml
 [dependencies]
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0" }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 Enable the bundled PostgreSQL driver instead:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false, features = ["postgres"] }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1", default-features = false, features = ["postgres"] }
 ```
 
 Or use the query builder and dialect compilers without a bundled runtime:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.0", default-features = false }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1", default-features = false }
 ```
 
 The `postgres` feature includes UUID, JSON/JSONB, Chrono date/time types,
@@ -153,8 +153,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Typed structure** — schema markers constrain columns, joins, filters,
   inserts, updates, and result decoding.
 - **Composable SQL** — immutable SELECT, INSERT, UPDATE, and DELETE builders
-  cover joins, CTEs, subqueries, aggregates, windows, set operations,
-  functions, casts, and conflict handling.
+  cover joins, CTEs, `UPDATE FROM`, typed expression assignments, subqueries,
+  aggregates, windows, set operations, functions, casts, and conflict handling.
 - **Explicit concurrency** — PostgreSQL row locks, table locks, advisory locks,
   transaction isolation, access mode, and timeouts remain typed operations.
 - **Checked results** — scalar, tuple, nullable, array, UUID, JSON, temporal,
@@ -168,32 +168,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### PostgreSQL worker queues stay typed
 
-Lock clauses are AST nodes rather than appended SQL strings. Targets are
-checked against the query source, and unsupported dialects return an error:
+Lock clauses, CTEs, update sources, and expression assignments are AST nodes
+rather than appended SQL strings. That keeps candidate selection and lease
+acquisition in one parameterized statement:
 
 ```rust
-use a3s_orm::{orm_table, select_from, OrderDirection, PostgresDialect, Query};
+use a3s_orm::{
+    orm_table, select_from, update_table, OrderDirection, PostgresDialect, Query,
+};
 
 orm_table! {
     struct Job => "jobs" {
         id: i64 => "id",
         state: String => "state",
+        attempt_count: i32 => "attempt_count",
+    }
+}
+
+orm_table! {
+    struct JobCandidate => "job_candidate" {
+        id: i64 => "id",
     }
 }
 
 fn main() -> Result<(), a3s_orm::Error> {
-    let query = select_from::<Job>()
-        .select((Job::id(), Job::state()))
+    let candidates = select_from::<Job>()
+        .select(Job::id())
         .filter(Job::state().eq("ready"))
         .order_by(Job::id(), OrderDirection::Asc)
         .limit(1)
         .for_update_of::<Job>()
         .skip_locked()
+        .as_cte::<JobCandidate>();
+    let query = update_table::<Job>()
+        .with(candidates)
+        .set(Job::state(), "leased")
+        .set_expression(Job::attempt_count(), Job::attempt_count() + 1)
+        .from::<JobCandidate>()
+        .filter(Job::id().eq_column(JobCandidate::id()))
+        .returning((Job::id(), Job::attempt_count()))
         .compile(&PostgresDialect)?;
 
-    assert!(query
-        .sql
-        .ends_with("for update of \"jobs\" skip locked"));
+    assert!(query.sql.contains("for update of \"jobs\" skip locked"));
+    assert!(query.sql.contains("update \"jobs\""));
+    assert!(query.sql.contains("from \"job_candidate\""));
     Ok(())
 }
 ```
@@ -212,6 +230,7 @@ saturation without automatically replaying writes. See
 | Bundled async driver | Yes | Yes | No |
 | `RETURNING` | Yes | Yes | Rejected |
 | `ON CONFLICT` | Yes | Yes | Rejected |
+| `UPDATE FROM` | Yes | Yes | Rejected |
 | Row and table locks | Yes | Rejected | Rejected |
 | Transactions | Yes | Yes | — |
 | Locked migrations | Advisory lock | `BEGIN IMMEDIATE` | — |
