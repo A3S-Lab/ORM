@@ -82,20 +82,20 @@ SQLite is the default runtime. Pin the released Git tag:
 
 ```toml
 [dependencies]
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0" }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 Enable the bundled PostgreSQL driver instead:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0", default-features = false, features = ["postgres"] }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1", default-features = false, features = ["postgres"] }
 ```
 
 Or use the query builder and dialect compilers without a bundled runtime:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0", default-features = false }
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.2.1", default-features = false }
 ```
 
 The `postgres` feature includes UUID, JSON/JSONB, Chrono date/time types,
