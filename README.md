@@ -78,25 +78,28 @@ rejected instead of approximated.
 
 ### Install
 
-SQLite is the default runtime. Pin the released Git tag:
+SQLite is the default runtime:
 
 ```toml
 [dependencies]
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0" }
+a3s-orm = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 Enable the bundled PostgreSQL driver instead:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0", default-features = false, features = ["postgres"] }
+a3s-orm = { version = "0.3", default-features = false, features = ["postgres"] }
 ```
 
 Or use the query builder and dialect compilers without a bundled runtime:
 
 ```toml
-a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "v0.3.0", default-features = false }
+a3s-orm = { version = "0.3", default-features = false }
 ```
+
+Version `0.2.1` is the maintenance backport for applications constrained to
+the `0.2` compatibility line. New integrations should use `0.3`.
 
 The `postgres` feature includes UUID, JSON/JSONB, Chrono date/time types,
 `rust_decimal::Decimal`, and `SqlArray<T>`.
