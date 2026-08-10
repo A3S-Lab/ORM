@@ -1,26 +1,17 @@
-use crate::ast::{Assignment, ConflictAction, ConflictValue, InsertNode, SelectNode, TableNode};
+use crate::ast::{
+    Assignment, ConflictAction, ConflictValue, InsertNode, SelectNode, TableNode, UpdateAssignment,
+};
 use crate::error::{Error, Result};
 
-pub(super) fn verify_assignments(
-    table: &TableNode,
-    assignments: &[Assignment],
-    insert: bool,
-) -> Result<()> {
+fn verify_insert_assignments(table: &TableNode, assignments: &[Assignment]) -> Result<()> {
     if let Some(wrong) = assignments
         .iter()
         .find(|assignment| assignment.table != table.name)
     {
-        return if insert {
-            Err(Error::WrongInsertTable {
-                expected: table.name.to_owned(),
-                actual: wrong.table.to_owned(),
-            })
-        } else {
-            Err(Error::WrongUpdateTable {
-                expected: table.name.to_owned(),
-                actual: wrong.table.to_owned(),
-            })
-        };
+        return Err(Error::WrongInsertTable {
+            expected: table.name.to_owned(),
+            actual: wrong.table.to_owned(),
+        });
     }
     Ok(())
 }
@@ -31,7 +22,7 @@ pub(super) fn verify_insert_rows(node: &InsertNode) -> Result<()> {
         .map(|assignment| assignment.column)
         .collect::<Vec<_>>();
     for (row_index, row) in node.rows.iter().enumerate() {
-        verify_assignments(&node.table, row, true)?;
+        verify_insert_assignments(&node.table, row)?;
         let mut columns = std::collections::HashSet::with_capacity(row.len());
         for assignment in row {
             if !columns.insert(assignment.column) {
@@ -50,6 +41,22 @@ pub(super) fn verify_insert_rows(node: &InsertNode) -> Result<()> {
         }
     }
     verify_conflict(node)
+}
+
+pub(super) fn verify_update_assignments(
+    table: &TableNode,
+    assignments: &[UpdateAssignment],
+) -> Result<()> {
+    if let Some(wrong) = assignments
+        .iter()
+        .find(|assignment| assignment.table != table.name)
+    {
+        return Err(Error::WrongUpdateTable {
+            expected: table.name.to_owned(),
+            actual: wrong.table.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 fn verify_conflict(node: &InsertNode) -> Result<()> {

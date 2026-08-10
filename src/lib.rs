@@ -40,8 +40,8 @@ pub use executor::{
     Database, DatabaseError, ExecuteResult, Executor, QueryResult, Transaction, TransactionManager,
 };
 pub use expression::{
-    exists, not, Column, Expression, OrderDirection, SelectionExt, SqlComparable, WindowBoundary,
-    WindowFrame, WindowFrameUnits,
+    exists, not, Column, Expression, OrderDirection, SelectionExt, SqlComparable, SqlNumeric,
+    WindowBoundary, WindowFrame, WindowFrameUnits,
 };
 pub use function::{
     bound, cast, coalesce, count, count_all, least, max, min, scalar_subquery, sql_function,
@@ -95,6 +95,17 @@ pub use window::{dense_rank, rank, row_number, WindowExpression};
 /// orm_table! { struct Pet => "pet" { name: String => "name" } }
 ///
 /// let _ = update_table::<Person>().set(Pet::name(), "wrong table");
+/// ```
+///
+/// Expression assignments preserve the column's declared value family:
+///
+/// ```compile_fail
+/// use a3s_orm::{bound, orm_table, update_table};
+///
+/// orm_table! { struct Person => "person" { age: i32 => "age" } }
+///
+/// let _ = update_table::<Person>()
+///     .set_expression(Person::age(), bound::<String>("wrong type"));
 /// ```
 ///
 /// Column comparisons preserve the declared SQL value family, including

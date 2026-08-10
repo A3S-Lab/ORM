@@ -4,8 +4,9 @@ mod validation;
 pub use dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
 use crate::ast::{
-    ConflictAction, ConflictValue, DeleteNode, InsertNode, JoinKind, QueryNode, SelectLockStrength,
-    SelectLockWait, SelectNode, SetOperationKind, TableLockNode, TableNode, UpdateNode,
+    ConflictAction, ConflictValue, CteNode, DeleteNode, InsertNode, JoinKind, QueryNode,
+    SelectLockStrength, SelectLockWait, SelectNode, SetOperationKind, TableLockNode, TableNode,
+    UpdateNode,
 };
 use crate::error::{Error, Result};
 use crate::expression::{
@@ -14,8 +15,8 @@ use crate::expression::{
 use crate::query::PostgresTableLockMode;
 use crate::value::Value;
 use validation::{
-    validate_identifier, validate_sql_type, verify_assignments, verify_insert_rows,
-    verify_select_lock,
+    validate_identifier, validate_sql_type, verify_insert_rows, verify_select_lock,
+    verify_update_assignments,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,30 +51,12 @@ struct Compiler<'a, D: Dialect> {
 }
 
 impl<D: Dialect> Compiler<'_, D> {
-    fn select(&mut self, node: SelectNode) -> Result<()> {
+    fn select(&mut self, mut node: SelectNode) -> Result<()> {
         if node.selections.is_empty() {
             return Err(Error::EmptySelection);
         }
         verify_select_lock(&node)?;
-        if !node.ctes.is_empty() {
-            let mut names = std::collections::HashSet::with_capacity(node.ctes.len());
-            for cte in &node.ctes {
-                if !names.insert(cte.name) {
-                    return Err(Error::DuplicateCte(cte.name.to_owned()));
-                }
-            }
-            self.sql.push_str("with ");
-            for (index, cte) in node.ctes.into_iter().enumerate() {
-                if index > 0 {
-                    self.sql.push_str(", ");
-                }
-                self.identifier(cte.name)?;
-                self.sql.push_str(" as (");
-                self.select(*cte.query)?;
-                self.sql.push(')');
-            }
-            self.sql.push(' ');
-        }
+        self.ctes(std::mem::take(&mut node.ctes))?;
         self.sql.push_str("select ");
         if node.distinct {
             self.sql.push_str("distinct ");
@@ -239,11 +222,18 @@ impl<D: Dialect> Compiler<'_, D> {
         self.returning(&node.returning)
     }
 
-    fn update(&mut self, node: UpdateNode) -> Result<()> {
+    fn update(&mut self, mut node: UpdateNode) -> Result<()> {
         if node.assignments.is_empty() {
             return Err(Error::EmptyUpdate);
         }
-        verify_assignments(&node.table, &node.assignments, false)?;
+        verify_update_assignments(&node.table, &node.assignments)?;
+        if !node.from.is_empty() && !self.dialect.supports_update_from() {
+            return Err(Error::Compilation(format!(
+                "{} does not support update from clauses",
+                self.dialect.name()
+            )));
+        }
+        self.ctes(std::mem::take(&mut node.ctes))?;
         self.sql.push_str("update ");
         self.table(&node.table)?;
         self.sql.push_str(" set ");
@@ -253,10 +243,43 @@ impl<D: Dialect> Compiler<'_, D> {
             }
             self.identifier(assignment.column)?;
             self.sql.push_str(" = ");
-            self.parameter(assignment.value);
+            self.expression(&assignment.value)?;
+        }
+        if !node.from.is_empty() {
+            self.sql.push_str(" from ");
+            for (index, table) in node.from.iter().enumerate() {
+                if index > 0 {
+                    self.sql.push_str(", ");
+                }
+                self.table(table)?;
+            }
         }
         self.filter(node.filter.as_ref())?;
         self.returning(&node.returning)
+    }
+
+    fn ctes(&mut self, ctes: Vec<CteNode>) -> Result<()> {
+        if ctes.is_empty() {
+            return Ok(());
+        }
+        let mut names = std::collections::HashSet::with_capacity(ctes.len());
+        for cte in &ctes {
+            if !names.insert(cte.name) {
+                return Err(Error::DuplicateCte(cte.name.to_owned()));
+            }
+        }
+        self.sql.push_str("with ");
+        for (index, cte) in ctes.into_iter().enumerate() {
+            if index > 0 {
+                self.sql.push_str(", ");
+            }
+            self.identifier(cte.name)?;
+            self.sql.push_str(" as (");
+            self.select(*cte.query)?;
+            self.sql.push(')');
+        }
+        self.sql.push(' ');
+        Ok(())
     }
 
     fn delete(&mut self, node: DeleteNode) -> Result<()> {
@@ -442,6 +465,7 @@ impl<D: Dialect> Compiler<'_, D> {
                     BinaryOperator::In => " in ",
                     BinaryOperator::Is => " is ",
                     BinaryOperator::IsNot => " is not ",
+                    BinaryOperator::Add => " + ",
                 });
                 self.expression(right)?;
                 self.sql.push(')');

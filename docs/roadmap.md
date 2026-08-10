@@ -33,6 +33,7 @@ The project is being developed incrementally. Completed items describe implement
 - Typed scalar functions, bound expressions, validated casts, and predicate negation.
 - Nullability-compatible typed column comparison operators and expression ordering.
 - All PostgreSQL SELECT row-lock strengths, targeted row locks, `NOWAIT`, and `SKIP LOCKED`.
+- Typed CTE-driven `UPDATE FROM`, same-type numeric assignments, and `RETURNING` for atomic worker claims.
 - Typed PostgreSQL table-lock modes.
 - Parameterized transaction-scoped PostgreSQL advisory locks.
 

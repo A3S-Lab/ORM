@@ -35,6 +35,14 @@ emitting one of PostgreSQL's four lock strengths plus `NOWAIT` or
 enum; unsupported dialects fail compilation instead of receiving approximate
 syntax.
 
+Update nodes retain CTEs, `FROM` sources, and assignment expressions in the
+same parameter accumulator as their filters and `RETURNING` projection.
+`set_expression` requires the expression output type to match the destination
+column, while numeric column arithmetic remains parameterized. This permits a
+locking candidate CTE and its lease update to compile as one atomic PostgreSQL
+statement instead of forcing applications through raw SQL or a race-prone
+select-then-update sequence.
+
 ## SQLite transaction isolation
 
 Every `SqliteExecutor` clone shares a connection-level transaction gate. Normal execution acquires the gate for one operation; a transaction owns it from `BEGIN IMMEDIATE` through `commit` or `rollback`. Transaction statements use an internal unlocked path so they cannot deadlock themselves. Other clones wait at the gate and cannot interleave statements with the active transaction.
