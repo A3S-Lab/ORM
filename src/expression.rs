@@ -10,6 +10,23 @@ mod comparison {
     impl<T> Sealed<T> for Option<T> {}
 }
 
+mod numeric {
+    pub trait Sealed {}
+
+    macro_rules! numeric_types {
+        ($($value:ty),+ $(,)?) => {
+            $(impl Sealed for $value {})+
+        };
+    }
+
+    numeric_types!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
+
+    #[cfg(feature = "decimal")]
+    impl Sealed for rust_decimal::Decimal {}
+
+    impl<T: Sealed> Sealed for Option<T> {}
+}
+
 /// Marks SQL value types that can be compared without discarding their base
 /// type, including nullable/non-nullable forms of the same type.
 pub trait SqlComparable<Rhs>: comparison::Sealed<Rhs> {}
@@ -17,6 +34,22 @@ pub trait SqlComparable<Rhs>: comparison::Sealed<Rhs> {}
 impl<T> SqlComparable<T> for T {}
 impl<T> SqlComparable<Option<T>> for T {}
 impl<T> SqlComparable<T> for Option<T> {}
+
+/// Marks numeric SQL value types that support same-type arithmetic.
+pub trait SqlNumeric: numeric::Sealed {}
+
+macro_rules! numeric_types {
+    ($($value:ty),+ $(,)?) => {
+        $(impl SqlNumeric for $value {})+
+    };
+}
+
+numeric_types!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
+
+#[cfg(feature = "decimal")]
+impl SqlNumeric for rust_decimal::Decimal {}
+
+impl<T: SqlNumeric> SqlNumeric for Option<T> {}
 
 #[derive(Clone, Debug)]
 pub struct SelectSubquery(pub(crate) Box<crate::ast::SelectNode>);
@@ -105,6 +138,7 @@ pub enum BinaryOperator {
     In,
     Is,
     IsNot,
+    Add,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -332,6 +366,22 @@ impl<T, V> Column<T, V> {
             operator,
             right: Box::new(right),
         }
+    }
+}
+
+impl<T, V, Rhs> std::ops::Add<Rhs> for Column<T, V>
+where
+    V: SqlNumeric,
+    Rhs: IntoSqlValue<V>,
+{
+    type Output = crate::TypedExpression<V>;
+
+    fn add(self, value: Rhs) -> Self::Output {
+        crate::TypedExpression::new(Expression::Binary {
+            left: Box::new(self.expression()),
+            operator: BinaryOperator::Add,
+            right: Box::new(Expression::Value(value.into_sql_value())),
+        })
     }
 }
 
