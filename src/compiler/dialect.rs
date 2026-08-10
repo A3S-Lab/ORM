@@ -4,6 +4,10 @@ pub trait Dialect: Send + Sync {
     fn placeholder(&self, index: usize) -> String;
     fn supports_returning(&self) -> bool;
     fn supports_on_conflict(&self) -> bool;
+    /// Whether the dialect accepts `UPDATE ... FROM ...`.
+    fn supports_update_from(&self) -> bool {
+        false
+    }
     /// Whether the dialect accepts the typed SELECT row-locking clause.
     fn supports_select_row_locking(&self) -> bool {
         false
@@ -38,6 +42,10 @@ impl Dialect for PostgresDialect {
         true
     }
 
+    fn supports_update_from(&self) -> bool {
+        true
+    }
+
     fn supports_select_row_locking(&self) -> bool {
         true
     }
@@ -68,6 +76,10 @@ impl Dialect for SqliteDialect {
     }
 
     fn supports_on_conflict(&self) -> bool {
+        true
+    }
+
+    fn supports_update_from(&self) -> bool {
         true
     }
 }
