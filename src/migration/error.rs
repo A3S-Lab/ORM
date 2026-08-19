@@ -20,6 +20,8 @@ pub enum MigrationError {
     },
     #[error("database contains migration {0:?} that is absent from the source")]
     MissingSourceMigration(String),
+    #[error("required migration {0:?} has not been applied")]
+    MissingAppliedMigration(String),
 }
 
 #[derive(Debug, thiserror::Error)]

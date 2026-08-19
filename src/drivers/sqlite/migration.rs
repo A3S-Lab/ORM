@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use tokio_rusqlite::rusqlite;
 
 use crate::{
-    pending_migrations, AppliedMigration, MigrationBackend, MigrationReport, PreparedMigration,
+    pending_migrations, AppliedMigration, MigrationBackend, MigrationLedger, MigrationReport,
+    PreparedMigration,
 };
 
 use super::{SqliteExecutor, SqliteMigrationError};
@@ -14,6 +15,31 @@ const CREATE_TABLE: &str = "
         checksum text not null,
         applied_at text not null default current_timestamp
     )";
+
+#[async_trait]
+impl MigrationLedger for SqliteExecutor {
+    type Error = SqliteMigrationError;
+
+    async fn applied_migrations(&self) -> Result<Vec<AppliedMigration>, Self::Error> {
+        self.connection
+            .call(|connection| {
+                let mut statement = connection
+                    .prepare("select version, checksum from a3s_orm_migrations order by version")?;
+                let applied = statement
+                    .query_map([], |row| {
+                        Ok(AppliedMigration {
+                            version: row.get(0)?,
+                            checksum: row.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(applied)
+            })
+            .await
+            .map_err(crate::SqliteError::from)
+            .map_err(SqliteMigrationError::Driver)
+    }
+}
 
 #[async_trait]
 impl MigrationBackend for SqliteExecutor {

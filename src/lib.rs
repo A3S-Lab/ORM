@@ -49,7 +49,7 @@ pub use function::{
 };
 pub use migration::{
     pending_migrations, AppliedMigration, Migration, MigrationBackend, MigrationError,
-    MigrationReport, Migrator, PreparedMigration,
+    MigrationLedger, MigrationReport, Migrator, PreparedMigration,
 };
 pub use query::{
     delete_from, insert_into, lock_table, select_from, select_from_as, sql_query, update_table,

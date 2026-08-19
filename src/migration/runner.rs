@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use super::{Migration, MigrationBackend, MigrationError, MigrationRunError, PreparedMigration};
+use super::{
+    AppliedMigration, Migration, MigrationBackend, MigrationError, MigrationLedger,
+    MigrationRunError, PreparedMigration,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -17,7 +20,7 @@ pub struct Migrator<B> {
     backend: B,
 }
 
-impl<B: MigrationBackend> Migrator<B> {
+impl<B> Migrator<B> {
     pub const fn new(backend: B) -> Self {
         Self { backend }
     }
@@ -25,7 +28,9 @@ impl<B: MigrationBackend> Migrator<B> {
     pub fn backend(&self) -> &B {
         &self.backend
     }
+}
 
+impl<B: MigrationBackend> Migrator<B> {
     pub async fn run(
         &self,
         migrations: impl IntoIterator<Item = Migration>,
@@ -36,6 +41,52 @@ impl<B: MigrationBackend> Migrator<B> {
             .await
             .map_err(MigrationRunError::Backend)
     }
+}
+
+impl<B: MigrationLedger> Migrator<B> {
+    /// Verify that every supplied migration is present with its exact
+    /// checksum, without locking or mutating the database.
+    ///
+    /// Additional database migrations are admitted so an older serving
+    /// process can run during an expand-compatible rolling upgrade. Callers
+    /// remain responsible for deciding which schema versions are compatible.
+    pub async fn verify_required(
+        &self,
+        migrations: impl IntoIterator<Item = Migration>,
+    ) -> Result<(), MigrationRunError<B::Error>> {
+        let required = prepare(migrations)?;
+        let applied = self
+            .backend
+            .applied_migrations()
+            .await
+            .map_err(MigrationRunError::Backend)?;
+        verify_required(&applied, &required)?;
+        Ok(())
+    }
+}
+
+fn verify_required(
+    applied: &[AppliedMigration],
+    required: &[PreparedMigration],
+) -> Result<(), MigrationError> {
+    for required_migration in required {
+        let Some(applied_migration) = applied
+            .iter()
+            .find(|migration| migration.version == required_migration.version())
+        else {
+            return Err(MigrationError::MissingAppliedMigration(
+                required_migration.version().to_owned(),
+            ));
+        };
+        if applied_migration.checksum != required_migration.checksum() {
+            return Err(MigrationError::ChecksumMismatch {
+                version: required_migration.version().to_owned(),
+                applied_checksum: applied_migration.checksum.clone(),
+                source_checksum: required_migration.checksum().to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn prepare(

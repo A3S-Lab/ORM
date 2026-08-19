@@ -1,13 +1,15 @@
 use std::sync::Mutex;
 
 use a3s_orm::{
-    Migration, MigrationBackend, MigrationError, MigrationReport, Migrator, PreparedMigration,
+    AppliedMigration, Migration, MigrationBackend, MigrationError, MigrationLedger,
+    MigrationReport, Migrator, PreparedMigration,
 };
 use async_trait::async_trait;
 
 #[derive(Default)]
 struct RecordingBackend {
     migrations: Mutex<Vec<PreparedMigration>>,
+    applied: Mutex<Vec<AppliedMigration>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +34,15 @@ impl MigrationBackend for RecordingBackend {
                 .map(|migration| migration.version().to_owned())
                 .collect(),
         })
+    }
+}
+
+#[async_trait]
+impl MigrationLedger for RecordingBackend {
+    type Error = RecordingError;
+
+    async fn applied_migrations(&self) -> Result<Vec<AppliedMigration>, Self::Error> {
+        Ok(self.applied.lock().unwrap().clone())
     }
 }
 
@@ -73,4 +84,65 @@ async fn rejects_invalid_and_duplicate_versions_without_calling_backend() {
         ) if version == "001"
     ));
     assert!(migrator.backend().migrations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn verifies_required_migrations_without_applying_or_rejecting_a_compatible_superset() {
+    let required = Migration::new("001", "first", "select 1");
+    let checksum = {
+        let recorder = Migrator::new(RecordingBackend::default());
+        recorder.run([required.clone()]).await.unwrap();
+        let checksum = recorder.backend().migrations.lock().unwrap()[0]
+            .checksum()
+            .to_owned();
+        checksum
+    };
+    let backend = RecordingBackend {
+        applied: Mutex::new(vec![
+            AppliedMigration {
+                version: "001".into(),
+                checksum,
+            },
+            AppliedMigration {
+                version: "002".into(),
+                checksum: "a later migration is outside this binary's required set".into(),
+            },
+        ]),
+        ..RecordingBackend::default()
+    };
+    let migrator = Migrator::new(backend);
+
+    migrator.verify_required([required]).await.unwrap();
+    assert!(migrator.backend().migrations.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rejects_missing_or_changed_required_migrations() {
+    let missing = Migrator::new(RecordingBackend::default())
+        .verify_required([Migration::new("001", "first", "select 1")])
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        missing,
+        a3s_orm::migration::MigrationRunError::Validation(
+            MigrationError::MissingAppliedMigration(version)
+        ) if version == "001"
+    ));
+
+    let changed = Migrator::new(RecordingBackend {
+        applied: Mutex::new(vec![AppliedMigration {
+            version: "001".into(),
+            checksum: "wrong".into(),
+        }]),
+        ..RecordingBackend::default()
+    })
+    .verify_required([Migration::new("001", "first", "select 1")])
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        changed,
+        a3s_orm::migration::MigrationRunError::Validation(
+            MigrationError::ChecksumMismatch { version, .. }
+        ) if version == "001"
+    ));
 }

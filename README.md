@@ -278,6 +278,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Serving processes that deliberately have no DDL authority use the same
+manifest and ledger through `Migrator::verify_required`. That call performs no
+table creation, lock acquisition, or ledger write: every supplied migration
+must already exist with its exact checksum. Additional applied migrations are
+admitted so an older binary can participate in an explicitly
+expand-compatible rolling upgrade.
+
+```rust
+# use a3s_orm::{Migration, Migrator, SqliteExecutor};
+# async fn admit(executor: SqliteExecutor) -> Result<(), Box<dyn std::error::Error>> {
+Migrator::new(executor)
+    .verify_required([Migration::new(
+        "001",
+        "create people",
+        "create table person (id integer primary key, name text not null)",
+    )])
+    .await?;
+# Ok(())
+# }
+```
+
 SQLite coordinates migrators through its connection gate and
 `BEGIN IMMEDIATE`. PostgreSQL uses a transaction-scoped advisory lock with a
 bounded deadline. Migration SQL and its history entry commit atomically.

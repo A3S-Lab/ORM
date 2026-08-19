@@ -47,6 +47,22 @@ async fn applies_once_and_reports_up_to_date() {
 }
 
 #[tokio::test]
+async fn serving_admission_reads_the_ledger_without_creating_it() {
+    let executor = SqliteExecutor::open_in_memory().await.unwrap();
+    let migrator = Migrator::new(executor);
+
+    let absent = migrator.verify_required(migrations()).await.unwrap_err();
+    assert!(matches!(
+        absent,
+        a3s_orm::migration::MigrationRunError::Backend(a3s_orm::SqliteMigrationError::Driver(_))
+    ));
+
+    let applied = migrator.run(migrations()).await.unwrap();
+    assert_eq!(applied.applied, ["001", "002"]);
+    migrator.verify_required(migrations()).await.unwrap();
+}
+
+#[tokio::test]
 async fn detects_changed_and_missing_source_migrations() {
     let executor = SqliteExecutor::open_in_memory().await.unwrap();
     let migrator = Migrator::new(executor);

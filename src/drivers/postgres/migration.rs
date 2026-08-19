@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use crate::{
-    pending_migrations, AppliedMigration, MigrationBackend, MigrationError, MigrationReport,
-    PreparedMigration,
+    pending_migrations, AppliedMigration, MigrationBackend, MigrationError, MigrationLedger,
+    MigrationReport, PreparedMigration,
 };
 
 use super::options::postgres_timeout_value;
@@ -15,6 +15,30 @@ const CREATE_TABLE: &str = "
         checksum text not null,
         applied_at timestamptz not null default now()
     )";
+
+#[async_trait]
+impl MigrationLedger for PostgresExecutor {
+    type Error = PostgresMigrationError;
+
+    async fn applied_migrations(&self) -> Result<Vec<AppliedMigration>, Self::Error> {
+        let client = self.acquire().await?;
+        client
+            .query(
+                "select version, checksum from a3s_orm_migrations order by version",
+                &[],
+            )
+            .await
+            .map_err(|source| self.migration_database_error(source))
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| AppliedMigration {
+                        version: row.get(0),
+                        checksum: row.get(1),
+                    })
+                    .collect()
+            })
+    }
+}
 
 impl PostgresExecutor {
     fn migration_options_error(&self, source: PostgresOptionsError) -> PostgresMigrationError {
