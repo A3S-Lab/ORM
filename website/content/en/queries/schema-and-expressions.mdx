@@ -1,0 +1,119 @@
+---
+title: Tables and expressions
+description: Declare tables with orm_table! and compose columns, nulls, aliases, functions, and predicates safely.
+---
+
+# Tables and expressions
+
+`orm_table!` is the entry point to the query type system. It creates a zero-sized marker that implements `Table` and a constructor returning `Column<Table, Value>` for every column.
+
+## Declare a table
+
+```rust
+use a3s_orm::orm_table;
+
+orm_table! {
+    pub struct Person => "person" {
+        id: i64 => "id",
+        name: String => "name",
+        nickname: Option<String> => "nickname",
+        age: i32 => "age",
+    }
+}
+```
+
+Table and column names must be valid SQL identifiers. The compiler quotes them for the selected dialect. Application values never use this identifier path.
+
+## Column ownership
+
+The table marker is part of every column type. This assignment fails during Rust compilation because `Pet::name()` is not owned by `Person`:
+
+```rust compile-fail
+use a3s_orm::{orm_table, update_table};
+
+orm_table! { struct Person => "person" { name: String => "name" } }
+orm_table! { struct Pet => "pet" { name: String => "name" } }
+
+let _ = update_table::<Person>().set(Pet::name(), "Milo");
+```
+
+The same rule protects inserts, conflict updates, lock targets, and typed joins.
+
+## Value comparisons and nulls
+
+Columns provide value comparisons, column comparisons, and null predicates:
+
+```rust
+let adults = Person::age().gte(18);
+let named = Person::name().like("A%");
+let missing_nickname = Person::nickname().is_null();
+let combined = adults.and(named).and(missing_nickname);
+```
+
+Nullable and non-nullable columns can be compared when their base value families are compatible. `is_null` and `is_not_null` always emit SQL null predicates instead of binding `NULL` with `=`.
+
+## Boolean composition
+
+```rust
+use a3s_orm::not;
+
+let predicate = Person::age()
+    .gte(18)
+    .and(Person::name().like("A%"))
+    .or(not(Person::nickname().is_null()));
+```
+
+`and`, `or`, and `not` retain an explicit expression tree. The compiler adds parentheses to preserve semantics.
+
+## Typed functions
+
+```rust
+use a3s_orm::{bound, cast, coalesce, count, max, sql_function};
+
+let total = count(Person::id());
+let oldest = max(Person::age());
+let display_name = coalesce::<String>([
+    Person::nickname().expression(),
+    Person::name().expression(),
+]);
+let lowered = sql_function::<String>(
+    "lower",
+    [Person::name().expression()],
+)?;
+let as_text = cast::<i32, String>(Person::age().expression(), "text")?;
+let fallback = bound::<String>("unknown");
+# Ok::<(), a3s_orm::Error>(())
+```
+
+`sql_function` validates function names and `cast` validates target type names. Their Rust result types are explicit caller assertions. The library does not query database metadata to infer them.
+
+## Selection aliases
+
+```rust
+use a3s_orm::{select_from, SelectionExt};
+
+let query = select_from::<Person>()
+    .select(Person::name().alias("display_name"));
+```
+
+Aliases use the same validation and quoting rules as table identifiers.
+
+## Table aliases
+
+Self joins use a separate table marker:
+
+```rust
+use a3s_orm::{orm_table, select_from_as};
+
+orm_table! {
+    struct Manager => "manager" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
+
+let query = select_from_as::<Person, Manager>()
+    .select((Manager::id(), Manager::name()));
+```
+
+The AST stores the source and alias separately. Columns must come from the alias marker, which prevents invalid SQL with original-table qualifiers.

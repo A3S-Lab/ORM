@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">A3S ORM</title>
+  <desc id="desc">Typed Rust queries compile into explicit parameterized SQL.</desc>
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#dfe3ea" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="mark" x1="0" y1="0" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5d8ef3"/>
+      <stop offset="1" stop-color="#315fc4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#f3f4f7"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect x="46" y="46" width="1108" height="538" rx="20" fill="#fff" stroke="#cfd4dd"/>
+  <g transform="translate(92 92)" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif">
+    <rect width="42" height="42" rx="11" fill="url(#mark)"/>
+    <path d="M10 32 21 9l11 23M14 25c4.5-2.7 9 3.2 15-.3" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="58" y="29" fill="#17191e" font-size="22" font-weight="700">A3S ORM</text>
+    <text x="0" y="130" fill="#17191e" font-size="68" font-weight="680" letter-spacing="-4">Typed queries.</text>
+    <text x="0" y="204" fill="#315fc4" font-size="68" font-weight="680" letter-spacing="-4">SQL stays visible.</text>
+    <text x="2" y="258" fill="#69717e" font-size="21">Rust types / parameterized SQL / async runtimes</text>
+    <g transform="translate(0 322)" font-family="ui-monospace,SFMono-Regular,Consolas,monospace" font-size="14">
+      <rect width="470" height="66" rx="9" fill="#f7f8fa" stroke="#d9dde5"/>
+      <text x="20" y="40" fill="#315fc4">a3s-orm</text>
+      <text x="93" y="40" fill="#343942">= { tag = "v0.3.0" }</text>
+    </g>
+  </g>
+  <g transform="translate(716 98)" font-family="ui-monospace,SFMono-Regular,Consolas,monospace">
+    <rect width="390" height="430" rx="14" fill="#171820" stroke="#315fc4"/>
+    <text x="24" y="42" fill="#8fa8da" font-size="13" font-weight="700">COMPILED / POSTGRESQL</text>
+    <path d="M0 62H390" stroke="#303443"/>
+    <g font-size="18">
+      <text x="24" y="112" fill="#f2f3f5">update <tspan fill="#8fb1ff">"jobs"</tspan></text>
+      <text x="24" y="148" fill="#f2f3f5">set <tspan fill="#8fb1ff">"state"</tspan> = $1</text>
+      <text x="24" y="184" fill="#f2f3f5">where <tspan fill="#8fb1ff">"jobs"."id"</tspan> = $2</text>
+      <text x="24" y="220" fill="#f2f3f5">returning <tspan fill="#8fb1ff">"jobs"."id"</tspan></text>
+    </g>
+    <rect x="24" y="274" width="342" height="104" rx="9" fill="#20222c"/>
+    <text x="44" y="309" fill="#8fa8da" font-size="12" font-weight="700">BOUND PARAMETERS</text>
+    <text x="44" y="349" fill="#f2f3f5" font-size="15">["leased", 42]</text>
+  </g>
+</svg>

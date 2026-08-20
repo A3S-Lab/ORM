@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://a3s-lab.github.io/ORM/">Documentation</a> ·
   <a href="#the-contract">The contract</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#capability-map">Capabilities</a> ·
@@ -33,6 +34,10 @@ driver-neutral interface.
 Despite the name, this is not an Active Record framework. Records do not own
 persistence behavior, queries remain visible, and runtime values are never
 interpolated into generated SQL.
+
+The [documentation website](https://a3s-lab.github.io/ORM/) provides complete
+Chinese and English guides for v0.3.1, v0.3.0, and v0.2.0, including same-page
+language and version switching.
 
 ## The contract
 
@@ -359,6 +364,16 @@ To run PostgreSQL integration tests locally:
 ```bash
 A3S_ORM_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:5432/a3s_orm \
   cargo test --all-features
+```
+
+The versioned bilingual documentation site lives in `website/`:
+
+```bash
+cd website
+npm ci
+npm run check
+npm run build
+npm run check:site
 ```
 
 ## License

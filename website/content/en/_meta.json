@@ -1,0 +1,31 @@
+[
+  {
+    "type": "section-header",
+    "label": "Get started"
+  },
+  {
+    "type": "dir",
+    "name": "getting-started",
+    "label": "Get started"
+  },
+  {
+    "type": "dir",
+    "name": "queries",
+    "label": "Build queries"
+  },
+  {
+    "type": "dir",
+    "name": "execution",
+    "label": "Execution and drivers"
+  },
+  {
+    "type": "dir",
+    "name": "operations",
+    "label": "Migrations and production"
+  },
+  {
+    "type": "dir",
+    "name": "reference",
+    "label": "Reference"
+  }
+]

@@ -1,0 +1,86 @@
+---
+title: SELECT 查询
+description: 构建投影、过滤、连接、分组、子查询、排序与类型化结果。
+---
+
+# SELECT 查询
+
+`select_from::<T>()` 创建不可变 SELECT 构建器。调用会消费并返回新的构建器，最终输出类型由 `select` 的投影决定。
+
+## 投影与结果类型
+
+```rust
+use a3s_orm::{select_from, OrderDirection};
+
+let query = select_from::<Person>()
+    .select((Person::id(), Person::name(), Person::nickname()))
+    .filter(Person::age().gte(18))
+    .order_by(Person::name(), OrderDirection::Asc)
+    .limit(20)
+    .offset(40);
+```
+
+这个查询的 `Output` 是 `(i64, String, Option<String>)`。实现了 `Row` 的驱动行可以通过 `FromRow` 解码该元组。
+
+`select_all()` 生成 `table.*`，但输出类型是 `()`。当调用方需要类型化解码时，应显式列出投影。
+
+## 连接
+
+```rust
+orm_table! {
+    struct Pet => "pet" {
+        id: i64 => "id",
+        owner_id: i64 => "owner_id",
+        name: String => "name",
+    }
+}
+
+let query = select_from::<Person>()
+    .select((Person::name(), Pet::name()))
+    .left_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+    .order_by(Person::name(), OrderDirection::Asc);
+```
+
+支持 `inner_join`、`left_join`、`right_join`、`full_join` 以及别名版本。方言会决定某种连接是否可编译。
+
+## 分组与 HAVING
+
+```rust
+use a3s_orm::{count, select_from};
+
+let pet_count = count(Pet::id());
+let query = select_from::<Pet>()
+    .select((Pet::owner_id(), pet_count.clone()))
+    .group_by(Pet::owner_id())
+    .having(pet_count.gte(2));
+```
+
+聚合返回 `TypedExpression<V>`，可用于投影、排序或谓词。
+
+## 标量子查询
+
+```rust
+use a3s_orm::{max, select_from};
+
+let oldest_age = select_from::<Person>()
+    .select(max(Person::age()));
+
+let query = select_from::<Person>()
+    .select(Person::name())
+    .filter(Person::age().eq_subquery(oldest_age));
+```
+
+标量子查询必须有且只有一个投影。也可以使用 `eq_subquery`、`in_subquery` 与 `exists` 构造谓词。
+
+## DISTINCT 与排序表达式
+
+```rust
+use a3s_orm::{count, select_from, OrderDirection};
+
+let query = select_from::<Pet>()
+    .select(Pet::owner_id())
+    .distinct()
+    .order_by_expression(count(Pet::id()), OrderDirection::Desc);
+```
+
+排序表达式与查询共享参数累加器，因此其中的绑定值保持正确编号。

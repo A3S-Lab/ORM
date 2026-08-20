@@ -1,0 +1,96 @@
+---
+title: CTEs, windows, locks, and raw SQL
+description: Use advanced SQL structures while retaining dialect checks and global parameter ordering.
+---
+
+# CTEs, windows, locks, and raw SQL
+
+Advanced structures remain AST nodes. They are not appended as string suffixes, so they participate in validation, dialect capability checks, and continuous parameter numbering.
+
+## Common table expressions
+
+```rust
+use a3s_orm::{orm_table, select_from};
+
+orm_table! {
+    struct Adult => "adult" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
+
+let adults = select_from::<Person>()
+    .select((Person::id(), Person::name()))
+    .filter(Person::age().gte(18))
+    .as_cte::<Adult>();
+
+let query = select_from::<Adult>()
+    .with(adults)
+    .select((Adult::id(), Adult::name()));
+```
+
+The target table marker supplies the CTE name. Duplicate names fail during compilation.
+
+## Set operations
+
+```rust
+let current = select_from::<Person>().select(Person::name());
+let archived = select_from::<ArchivedPerson>().select(ArchivedPerson::name());
+let names = current.union_all(archived);
+```
+
+`union`, `union_all`, `intersect`, and `except` require the same Rust output type on both operands. Operands with CTEs, ordering, pagination, or row locks are not currently supported.
+
+## Window functions
+
+```rust
+use a3s_orm::{row_number, select_from, OrderDirection};
+
+let position = row_number()
+    .partition_by(Person::age())
+    .order_by(Person::name(), OrderDirection::Asc);
+
+let query = select_from::<Person>()
+    .select((Person::name(), position));
+```
+
+`rank`, `dense_rank`, and explicit window frames are also available. Invalid frame boundaries are rejected.
+
+## PostgreSQL row locks
+
+```rust
+let jobs = select_from::<Job>()
+    .select(Job::id())
+    .filter(Job::state().eq("ready"))
+    .for_update_of::<Job>()
+    .skip_locked()
+    .limit(10);
+```
+
+The API supports `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE`, `NOWAIT`, and `SKIP LOCKED`. A lock target must be present in the source or joins. SQLite and MySQL reject row locks.
+
+## PostgreSQL table locks
+
+```rust
+use a3s_orm::{lock_table, PostgresTableLockMode};
+
+let lock = lock_table::<Job>(PostgresTableLockMode::ShareRowExclusive)
+    .no_wait();
+```
+
+Table lock modes use a closed enum rather than arbitrary SQL fragments.
+
+## Controlled raw SQL
+
+```rust
+use a3s_orm::sql_query;
+
+let query = sql_query::<(i64, String)>(
+    "select id, name from person where age >= ",
+)
+.bind(18)
+.append(" order by name limit ")
+.bind(20);
+```
+
+SQL text arguments must be static strings. Dynamic data can only enter through `bind`. The output type is a caller assertion, so cover static SQL with review and tests.

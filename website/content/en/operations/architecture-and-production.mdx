@@ -1,0 +1,69 @@
+---
+title: Architecture and production boundaries
+description: Understand module ownership, extension rules, supported deployments, the checklist, and current limits.
+---
+
+# Architecture and production boundaries
+
+A3S ORM uses a one-way dependency flow from typed construction to execution. Compilers do not open connections, drivers do not understand builder state, and the internal AST is not public API.
+
+## Module ownership
+
+| Module       | Ownership                                                                        |
+| ------------ | -------------------------------------------------------------------------------- |
+| `schema`     | Table identity and references                                                    |
+| `expression` | Columns, predicates, ordering, and nullability-compatible comparison             |
+| `function`   | Aggregates, scalar functions, bound expressions, and casts                       |
+| `window`     | Window expressions, ordering, and frames                                         |
+| `query`      | Immutable builders split by statement kind                                       |
+| `compiler`   | AST validation, SQL generation, dialect capabilities, and parameter accumulation |
+| `decode`     | Conversion from driver-neutral values to query output                            |
+| `executor`   | Async execution, transaction traits, and `Database`                              |
+| `drivers`    | Client adaptation, driver rows, and driver errors                                |
+| `migration`  | Definitions, checksums, coordination, and backend contract                       |
+| `value`      | Bound parameters and untyped result-value boundary                               |
+
+## Extension rules
+
+- A new dialect implements `Dialect`.
+- A new runtime implements `Executor` and keeps driver-specific rows and errors local.
+- A new SQL construct extends the AST first, then its builder, compiler, and dialect capabilities.
+- Do not bypass AST validation with string suffixes.
+- Custom functions and casts validate names while the caller states result types explicitly.
+
+## Supported deployments
+
+- Bundled Tokio-safe, single-connection SQLite executor.
+- Bundled Deadpool PostgreSQL executor with caller-supplied TLS material.
+- Compiler-only PostgreSQL, SQLite, and MySQL generation.
+- Custom runtimes implementing the public `Executor` contract.
+
+## Production checklist
+
+1. Use `connect_tls` for production PostgreSQL. Reserve `connect_no_tls` for local or separately secured connections.
+2. Set capacity and wait, create, and recycle deadlines with `PostgresPoolOptions`.
+3. Review `SqliteOptions` for the workload and do not treat the single connection as a pool.
+4. Configure migration advisory-lock identity and deploy through expand, migrate, verify, and contract phases.
+5. Use typed builders by default. Restrict `sql_query` to reviewed static SQL.
+6. Pin and audit the application lockfile.
+7. Retry only proven-idempotent operations with bounded attempts, and resolve ambiguous commits.
+8. Add only bounded deployment labels when exporting label-free pool metrics.
+
+## Current limitations
+
+- The SQLite executor serializes work on one connection.
+- Applications own TLS certificate retrieval and rotation scheduling.
+- Retry classification does not retry transactions automatically.
+- Set operands with their own CTE, ordering, or pagination are not supported.
+- SELECT row and table locks currently target PostgreSQL only.
+- Scalar function and cast result types are caller assertions.
+- Migrations are forward-only with no automated down migration.
+- MySQL has no bundled runtime.
+- Typed DDL, query plugins, custom PostgreSQL domain codecs, and schema code generation are not included.
+- Caller-declared table and CTE alias shapes must match their source.
+
+These are explicit API boundaries. Unsupported clauses and values return errors instead of silent fallbacks.
+
+## Verification baseline
+
+Project CI covers Rust 1.85 MSRV, no-default-feature, individual extended value features, PostgreSQL-only, all features, compile-fail doctests, strict Clippy, warning-free rustdoc, cargo-audit, real SQLite and PostgreSQL 17 integration tests, and at least 90 percent all-feature line coverage.

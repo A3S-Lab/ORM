@@ -1,0 +1,73 @@
+---
+title: Overview
+description: Understand the A3S ORM type contract, compilation boundary, runtime model, and supported scope.
+---
+
+# Overview
+
+A3S ORM is a type-safe Rust SQL query builder inspired by Kysely. Table declarations constrain columns, values, assignments, and decoded results while the actual SQL, bound parameters, and execution point remain visible.
+
+It is not an Active Record framework. Records do not own persistence methods, field access does not execute queries, and runtime values never enter SQL text.
+
+## Core data flow
+
+```text
+typed tables and expressions
+            |
+     immutable query AST
+            |
+       dialect compiler
+            |
+     SQL + bound parameters
+            |
+    async Executor and driver
+```
+
+Each layer owns one category of responsibility:
+
+| Layer                 | Owns                                                                | Does not own                              |
+| --------------------- | ------------------------------------------------------------------- | ----------------------------------------- |
+| Schema and Expression | Table identity, column ownership, value families, legal comparisons | SQL dialects and connections              |
+| Query                 | SELECT, INSERT, UPDATE, DELETE, and their structure                 | Opening database connections              |
+| Dialect               | Identifier quoting, placeholders, capability checks                 | Transactions and row decoding             |
+| Executor              | Async execution, transactions, connections, and driver rows         | Builder type state                        |
+| Decode                | Checked conversion from driver-neutral values                       | Implicit correction of incompatible types |
+
+## Guarantees you can rely on
+
+- A column can only be used with its owning table or an explicit alias.
+- Comparisons, assignments, and inserted values must use compatible Rust and SQL value families.
+- Dynamic values can only enter compiled output as bound parameters.
+- Unsupported dialect capabilities return errors instead of approximate syntax.
+- CTEs, subqueries, windows, and outer queries share one parameter sequence.
+- `Database` separates build, execution, decoding, no-row, and too-many-row failures.
+
+<!-- @if atomic-update-claims -->
+
+{{DOC_VERSION}} also supports typed UPDATE CTEs, `UPDATE FROM`, expression assignments, and atomic worker claims. Candidate row locking and state updates can remain in one parameterized statement.
+
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+{{DOC_VERSION}} does not include typed UPDATE CTEs, `UPDATE FROM`, or `set_expression`. Use reviewed static `sql_query` statements for atomic worker claims, or upgrade to v0.3.0.
+
+<!-- @endif -->
+
+## Dialects and runtimes
+
+| Capability           |  PostgreSQL   |      SQLite       |  MySQL   |
+| -------------------- | :-----------: | :---------------: | :------: |
+| SQL compilation      |      Yes      |        Yes        |   Yes    |
+| Bundled async driver |      Yes      |        Yes        |    No    |
+| `RETURNING`          |      Yes      |        Yes        | Rejected |
+| `ON CONFLICT`        |      Yes      |        Yes        | Rejected |
+| Row and table locks  |      Yes      |     Rejected      | Rejected |
+| Transactions         |      Yes      |        Yes        |    No    |
+| Locked migrations    | Advisory lock | `BEGIN IMMEDIATE` |    No    |
+
+SQLite is the default feature. PostgreSQL uses a bounded Deadpool pool and adds transaction policy, TLS, health snapshots, and retry classification. MySQL currently provides compilation only.
+
+## Next steps
+
+Read [installation and features](/getting-started/installation), then complete the [quick start](/getting-started/quick-start). Review [architecture and production boundaries](/operations/architecture-and-production) before deployment.

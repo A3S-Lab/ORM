@@ -1,0 +1,59 @@
+---
+title: 路线图与版本差异
+description: 查看 {{DOC_VERSION}} 已完成能力、下一步工作与升级注意事项。
+---
+
+# 路线图与版本差异
+
+A3S ORM 按具体应用需求扩展，不把完整 Kysely 兼容性作为无条件目标。
+
+## {{DOC_VERSION}} 已提供
+
+- 类型化表、列、值、CRUD、连接与结果解码。
+- PostgreSQL、SQLite、MySQL 编译器。
+- SQLite 与 PostgreSQL 异步执行器和取消安全事务。
+- CTE、子查询、聚合、窗口、集合运算、冲突处理和受控原始 SQL。
+- PostgreSQL pool、TLS、健康、指标、重试分类、行锁、表锁与 advisory lock。
+- SQLite 和 PostgreSQL 的有序、校验和、原子迁移。
+
+<!-- @if atomic-update-claims -->
+
+- 类型化 UPDATE CTE、`UPDATE FROM`、数值表达式赋值与原子 worker claim。
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+{{DOC_VERSION}} 不包含类型化 UPDATE CTE、`UPDATE FROM` 或数值表达式赋值。v0.3.0 增加了这些能力，同时保持其他核心查询与执行接口。
+
+<!-- @endif -->
+
+<!-- @if read-only-schema-admission -->
+
+- 通过 `MigrationLedger` 与 `Migrator::verify_required` 执行只读 schema 准入。
+<!-- @endif -->
+
+<!-- @unless read-only-schema-admission -->
+
+- 通过 `MigrationLedger` 与 `Migrator::verify_required` 执行只读 schema 准入的能力从 v0.3.1 开始提供。
+<!-- @endif -->
+
+## 下一步
+
+- PostgreSQL enum、range、network 与 custom domain codec。
+
+## 后续候选
+
+- 类型化 schema definition builder。
+- 查询转换插件。
+- MySQL 与其他运行时驱动。
+- 更广的 compile-fail schema 误用覆盖。
+- 由实际应用需求驱动的查询能力扩展。
+
+## 升级检查
+
+1. 切换页面顶部版本选择器，阅读目标版本同一主题页面。
+2. 更新 Git 标签并运行 `cargo check`。
+3. 用应用方言编译关键查询，检查 SQL snapshot 与参数顺序。
+4. 运行真实 SQLite 或 PostgreSQL 集成测试。
+5. 对写事务重新核对幂等性、重试与提交不确定性。
+6. 只新增向前迁移，不修改已应用 SQL。

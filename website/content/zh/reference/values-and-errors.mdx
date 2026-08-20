@@ -1,0 +1,57 @@
+---
+title: 值与错误
+description: 理解驱动中立 Value、类型化解码错误、构建错误与驱动错误分类。
+---
+
+# 值与错误
+
+`Value` 是编译器与执行器之间的参数边界，也是驱动行进入解码器前的共同表示。
+
+## Value 变体
+
+| 变体         | Rust 输入               | 说明                             |
+| ------------ | ----------------------- | -------------------------------- |
+| `Null`       | `Option::None`          | SQL NULL                         |
+| `Bool`       | `bool`                  | SQLite 编码为 0 或 1             |
+| `I64`        | 有符号整数              | PostgreSQL 按目标类型检查范围    |
+| `U64`        | 无符号整数              | SQLite 超过 `i64` 时失败         |
+| `F64`        | `f32`、`f64`            | 浮点参数                         |
+| `String`     | `String`、`&str`        | 文本                             |
+| `Bytes`      | `Vec<u8>`               | bytea 或 blob                    |
+| `Array`      | `SqlArray<T>`           | PostgreSQL 数组，不与 bytes 混淆 |
+| `Uuid`       | `uuid::Uuid`            | 需要 `uuid` feature              |
+| `Json`       | `serde_json::Value`     | 需要 `json` feature              |
+| 日期时间变体 | Chrono 类型             | 需要 `chrono` feature            |
+| `Decimal`    | `rust_decimal::Decimal` | 需要 `decimal` feature           |
+
+`SqlArray<T>` 让 SQL 数组与 `Vec<u8>` 的字节语义分离。PostgreSQL 会根据服务器推断出的元素类型逐项转换，并报告元素索引。
+
+## 构建错误
+
+顶层 `Error` 覆盖无效标识符、空投影、无效 scalar subquery、重复 CTE、无效窗口 frame、空写入、列所有权错误、冲突结构错误、锁目标错误以及方言编译失败。
+
+构建错误意味着查询没有交给执行器。应用应修复查询结构，不应把它当作瞬时数据库错误重试。
+
+## 解码错误
+
+`DecodeError` 区分：
+
+- 结果缺少预期列索引。
+- 实际 `Value` 类型与目标 Rust 类型不匹配。
+- 整数超出目标类型范围。
+- SQL 数组的某个元素无法解码。
+
+`Option<T>` 只把 `Value::Null` 解码为 `None`。其他类型错误不会被吞掉。
+
+## 驱动错误
+
+SQLite 错误保留底层执行、参数与事务阶段。作用域事务可以同时返回操作错误和回滚错误，不会丢失主要失败。
+
+PostgreSQL 错误额外提供 `retry_class()` 与 `is_retryable()`。分类是稳定策略输入，不包含自动重试。完整分类见 [PostgreSQL 与高可用](/execution/postgresql-and-ha)。
+
+## 记录错误
+
+- 不要记录包含凭据的连接 URL。
+- TLS options 的 `Debug` 已经省略 PEM，但应用仍应保护原始 secret buffer。
+- Pool metrics 不包含高基数标签。不要把 SQL 或完整错误消息转换为指标标签。
+- 对 `DatabaseError` 记录阶段与受控业务上下文，再保留 error source chain。

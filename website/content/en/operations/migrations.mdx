@@ -1,0 +1,112 @@
+---
+title: Migrations
+description: Run ordered, checksummed, atomic, and bounded-lock SQLite and PostgreSQL migrations.
+---
+
+# Migrations
+
+A3S ORM migrations form a forward-only version sequence. Each migration has a version, name, and `up_sql`. The runner sorts, validates, and computes a SHA-256 checksum before execution.
+
+## Define and run migrations
+
+```rust
+use a3s_orm::{Migration, Migrator, SqliteExecutor};
+
+let executor = SqliteExecutor::open("data/app.db").await?;
+let report = Migrator::new(executor)
+    .run([
+        Migration::new(
+            "001",
+            "create people",
+            "create table person (\
+             id integer primary key, \
+             name text not null)",
+        ),
+        Migration::new(
+            "002",
+            "add age",
+            "alter table person add column age integer",
+        ),
+    ])
+    .await?;
+
+println!("applied: {:?}", report.applied);
+```
+
+`MigrationReport::is_up_to_date()` returns `true` when nothing new was applied.
+
+## Version rules
+
+- A version cannot be empty.
+- Versions only allow ASCII letters, digits, dots, underscores, and hyphens.
+- One run cannot contain duplicate versions.
+- Names and SQL cannot be blank after trimming.
+- Versions sort as strings, so use fixed-width identifiers such as `001` and `002`.
+
+## History and drift detection
+
+Built-in backends maintain `a3s_orm_migrations`. Each applied version records its SHA-256 checksum.
+
+On every run:
+
+1. A version stored in the database must still exist in source.
+2. Applied SQL checksums must remain unchanged.
+3. Only unapplied versions execute.
+4. Schema changes and history rows commit in one transaction.
+
+Changing or removing applied migrations returns `ChecksumMismatch` or `MissingSourceMigration`. Add a new forward migration instead of rewriting history.
+
+## Read-only serving admission
+
+<!-- @if read-only-schema-admission -->
+
+Serving processes can verify their required schema without DDL authority. `verify_required` reads the existing ledger without creating tables, taking migration locks, or writing rows. Every required migration must exist with the same checksum. Later applied migrations are admitted so an older binary can remain active during an explicitly compatible rolling upgrade.
+
+```rust
+use a3s_orm::{Migration, Migrator, SqliteExecutor};
+
+let executor = SqliteExecutor::open("data/app.db").await?;
+Migrator::new(executor)
+    .verify_required([Migration::new(
+        "001",
+        "create people",
+        "create table person (id integer primary key, name text not null)",
+    )])
+    .await?;
+```
+
+Give the deployment migrator DDL authority and keep serving roles read-only. The application still owns the decision that later schema versions are expand-compatible with the running binary.
+
+<!-- @endif -->
+
+<!-- @unless read-only-schema-admission -->
+
+`MigrationLedger` and `Migrator::verify_required` are available from v0.3.1. In {{DOC_VERSION}}, schema admission requires an application-owned ledger check or a migration-capable role.
+
+<!-- @endif -->
+
+## Concurrent locks
+
+SQLite uses the executor gate with `BEGIN IMMEDIATE`. PostgreSQL acquires a transaction-scoped advisory lock in the same transaction and uses a bounded wait.
+
+```rust
+use std::time::Duration;
+use a3s_orm::{PostgresMigrationOptions, PostgresExecutor};
+
+let executor = executor.with_migration_options(
+    PostgresMigrationOptions::new()
+        .with_advisory_lock_id(0x4150_505f_4442)
+        .with_lock_timeout(Duration::from_secs(10)),
+)?;
+```
+
+Use distinct lock ids when independent application schemas share one database. Lock deadlines classify as `LockContention`.
+
+## Rolling deployment
+
+1. Expand: add nullable columns, compatible defaults, tables, or indexes.
+2. Migrate: deploy code that reads both shapes and backfill in bounded batches outside schema migration.
+3. Verify: prove old and new application versions can read and write while observing errors and backfill metrics.
+4. Contract: remove compatibility structures in a later migration after old versions are fully drained.
+
+Do not combine expansion with an incompatible contract step.

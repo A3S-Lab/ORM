@@ -1,0 +1,81 @@
+---
+title: SQLite 驱动
+description: 配置 SQLite 文件与内存数据库、连接 gate、事务、savepoint 和值映射。
+---
+
+# SQLite 驱动
+
+`SqliteExecutor` 在 `tokio-rusqlite` 连接之上提供异步 `Executor`。所有 clone 共享同一个连接和事务 gate。
+
+## 打开数据库
+
+```rust
+use a3s_orm::SqliteExecutor;
+
+let memory = SqliteExecutor::open_in_memory().await?;
+let file = SqliteExecutor::open("data/app.db").await?;
+# Ok::<(), a3s_orm::SqliteError>(())
+```
+
+文件数据库默认使用 WAL、五秒 busy timeout 和外键校验。内存数据库把 journal mode 改为 `Memory`。
+
+## 自定义选项
+
+```rust
+use std::time::Duration;
+use a3s_orm::{SqliteExecutor, SqliteJournalMode, SqliteOptions};
+
+let executor = SqliteExecutor::open_with_options(
+    "data/app.db",
+    SqliteOptions {
+        busy_timeout: Duration::from_secs(10),
+        foreign_keys: true,
+        journal_mode: SqliteJournalMode::Wal,
+    },
+)
+.await?;
+# Ok::<(), a3s_orm::SqliteError>(())
+```
+
+`SqliteJournalMode` 还包括 `Delete`、`Truncate`、`Persist`、`Memory` 与 `Off`。修改持久化策略前应核对 SQLite 的并发与崩溃恢复语义。
+
+## 连接 gate
+
+普通执行每次持有 gate 完成一个操作。事务从 `BEGIN IMMEDIATE` 到提交或回滚持续持有它。这样可以保证其他 `SqliteExecutor` clone 不会把语句插入正在进行的事务。
+
+这不是连接池。并行请求会在一个连接前排队。高吞吐、多写入者部署通常应选择 PostgreSQL。
+
+## 嵌套 savepoint
+
+```rust
+executor
+    .transaction(|transaction| {
+        Box::pin(async move {
+            transaction
+                .savepoint(|savepoint| {
+                    Box::pin(async move {
+                        let query = insert_into::<Person>()
+                            .value(Person::id(), 2)
+                            .value(Person::name(), "Grace")
+                            .value(Person::age(), 40)
+                            .compile(&SqliteDialect)?;
+                        savepoint.execute(&query).await?;
+                        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+                    })
+                })
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+        })
+    })
+    .await?;
+```
+
+嵌套操作失败只回滚 savepoint 内的修改。外层事务仍可决定继续或返回错误。
+
+## 值映射
+
+SQLite 原生返回 `NULL`、整数、浮点、文本和 blob。布尔值编码为整数。启用可选 value feature 时，UUID、JSON、时间和 Decimal 会使用文本表示。SQL 数组不受 SQLite 参数编码支持。
+
+## 可信 DDL
+
+`execute_schema` 直接执行调用方提供的 SQL，适合启动时建表与测试夹具。它不是应用值 API。用户输入必须通过类型化查询或 `sql_query().bind(...)` 进入参数。

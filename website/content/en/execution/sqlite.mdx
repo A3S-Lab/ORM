@@ -1,0 +1,81 @@
+---
+title: SQLite driver
+description: Configure SQLite files and memory databases, the connection gate, transactions, savepoints, and value mapping.
+---
+
+# SQLite driver
+
+`SqliteExecutor` provides async `Executor` behavior over a `tokio-rusqlite` connection. Every clone shares one connection and transaction gate.
+
+## Open a database
+
+```rust
+use a3s_orm::SqliteExecutor;
+
+let memory = SqliteExecutor::open_in_memory().await?;
+let file = SqliteExecutor::open("data/app.db").await?;
+# Ok::<(), a3s_orm::SqliteError>(())
+```
+
+File databases default to WAL, a five-second busy timeout, and foreign-key enforcement. In-memory databases change the journal mode to `Memory`.
+
+## Custom options
+
+```rust
+use std::time::Duration;
+use a3s_orm::{SqliteExecutor, SqliteJournalMode, SqliteOptions};
+
+let executor = SqliteExecutor::open_with_options(
+    "data/app.db",
+    SqliteOptions {
+        busy_timeout: Duration::from_secs(10),
+        foreign_keys: true,
+        journal_mode: SqliteJournalMode::Wal,
+    },
+)
+.await?;
+# Ok::<(), a3s_orm::SqliteError>(())
+```
+
+`SqliteJournalMode` also includes `Delete`, `Truncate`, `Persist`, `Memory`, and `Off`. Review SQLite concurrency and crash-recovery semantics before changing persistence policy.
+
+## Connection gate
+
+Normal execution holds the gate for one operation. A transaction holds it from `BEGIN IMMEDIATE` through commit or rollback. Other `SqliteExecutor` clones cannot interleave statements with that transaction.
+
+This is not a connection pool. Concurrent requests queue in front of one connection. High-throughput deployments with multiple writers should normally use PostgreSQL.
+
+## Nested savepoints
+
+```rust
+executor
+    .transaction(|transaction| {
+        Box::pin(async move {
+            transaction
+                .savepoint(|savepoint| {
+                    Box::pin(async move {
+                        let query = insert_into::<Person>()
+                            .value(Person::id(), 2)
+                            .value(Person::name(), "Grace")
+                            .value(Person::age(), 40)
+                            .compile(&SqliteDialect)?;
+                        savepoint.execute(&query).await?;
+                        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+                    })
+                })
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+        })
+    })
+    .await?;
+```
+
+A nested failure only rolls back changes inside the savepoint. The outer transaction can continue or return its own error.
+
+## Value mapping
+
+SQLite returns native null, integer, real, text, and blob values. Booleans encode as integers. Optional value features represent UUID, JSON, time, and Decimal as text. SQLite parameter encoding does not support SQL arrays.
+
+## Trusted DDL
+
+`execute_schema` runs caller-provided SQL directly for startup schemas and test fixtures. It is not an application-value API. User input must enter through typed queries or `sql_query().bind(...)` parameters.

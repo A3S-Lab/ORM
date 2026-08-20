@@ -1,0 +1,59 @@
+---
+title: Roadmap and version differences
+description: Review completed {{DOC_VERSION}} capabilities, planned work, and upgrade considerations.
+---
+
+# Roadmap and version differences
+
+A3S ORM grows from concrete application needs. Complete Kysely parity is not an unconditional target.
+
+## Available in {{DOC_VERSION}}
+
+- Typed tables, columns, values, CRUD, joins, and result decoding.
+- PostgreSQL, SQLite, and MySQL compilers.
+- SQLite and PostgreSQL async executors with cancellation-safe transactions.
+- CTEs, subqueries, aggregates, windows, set operations, conflict handling, and controlled raw SQL.
+- PostgreSQL pooling, TLS, health, metrics, retry classes, row locks, table locks, and advisory locks.
+- Ordered, checksummed, atomic SQLite and PostgreSQL migrations.
+
+<!-- @if atomic-update-claims -->
+
+- Typed UPDATE CTEs, `UPDATE FROM`, numeric expression assignments, and atomic worker claims.
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+{{DOC_VERSION}} does not include typed UPDATE CTEs, `UPDATE FROM`, or numeric expression assignments. v0.3.0 adds those capabilities while retaining the other core query and execution interfaces.
+
+<!-- @endif -->
+
+<!-- @if read-only-schema-admission -->
+
+- Read-only schema admission through `MigrationLedger` and `Migrator::verify_required`.
+<!-- @endif -->
+
+<!-- @unless read-only-schema-admission -->
+
+- Read-only schema admission through `MigrationLedger` and `Migrator::verify_required` is available from v0.3.1.
+<!-- @endif -->
+
+## Next
+
+- PostgreSQL enum, range, network, and custom-domain codecs.
+
+## Later candidates
+
+- Typed schema-definition builders.
+- Query transformation plugins.
+- MySQL and additional runtime drivers.
+- Broader compile-fail coverage for schema misuse.
+- Query capabilities driven by concrete application needs.
+
+## Upgrade checklist
+
+1. Use the version selector above and read the same topic for the target version.
+2. Update the Git tag and run `cargo check`.
+3. Compile critical queries with the application dialect and inspect SQL snapshots and parameter order.
+4. Run real SQLite or PostgreSQL integration tests.
+5. Revisit idempotency, retry policy, and commit ambiguity for write transactions.
+6. Add forward migrations only and never change applied SQL.

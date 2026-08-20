@@ -1,0 +1,61 @@
+---
+title: 安装与 feature
+description: 为 SQLite、PostgreSQL 或仅编译器模式配置 A3S ORM {{DOC_VERSION}}。
+---
+
+# 安装与 feature
+
+A3S ORM {{DOC_VERSION}} 要求 Rust 1.85 或更新版本。当前发布通过 Git 标签安装。
+
+## 默认 SQLite 运行时
+
+默认 feature 是 `sqlite`。下面的配置包含查询构建器、所有方言编译器与 Tokio 安全的 SQLite 执行器。
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## PostgreSQL 运行时
+
+禁用默认 feature，再启用 `postgres`：
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}", default-features = false, features = ["postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+`postgres` 同时启用 UUID、JSON、Chrono 日期时间、`rust_decimal::Decimal` 与 `SqlArray<T>` 支持。
+
+## 仅使用查询编译器
+
+如果应用自己实现 `Executor`，或者只需要生成 SQL，可以关闭全部默认 feature：
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}", default-features = false }
+```
+
+这种模式仍然提供 `PostgresDialect`、`SqliteDialect` 和 `MysqlDialect`，但不包含数据库客户端或 Tokio 依赖。
+
+## Feature 列表
+
+| Feature    | 默认 | 内容                                                   |
+| ---------- | :--: | ------------------------------------------------------ |
+| `sqlite`   |  是  | `SqliteExecutor`、事务、savepoint 与迁移后端           |
+| `postgres` |  否  | `PostgresExecutor`、连接池、TLS、事务、HA 控制与扩展值 |
+| `chrono`   |  否  | 日期、时间与时间戳值                                   |
+| `decimal`  |  否  | `rust_decimal::Decimal`                                |
+| `json`     |  否  | `serde_json::Value`                                    |
+| `uuid`     |  否  | `uuid::Uuid`                                           |
+
+## 最小工具链检查
+
+```bash
+rustc --version
+cargo check
+```
+
+若使用 PostgreSQL 集成测试，需要提供 `A3S_ORM_POSTGRES_URL`。生产 TLS 配置还需要 CA PEM 内容，具体见 [PostgreSQL 与高可用](/execution/postgresql-and-ha)。

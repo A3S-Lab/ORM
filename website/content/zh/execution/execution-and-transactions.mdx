@@ -1,0 +1,101 @@
+---
+title: 执行、解码与事务
+description: 使用 Executor、Database、TransactionManager 与类型化解码边界。
+---
+
+# 执行、解码与事务
+
+查询构建器不依赖数据库客户端。`Query::compile` 产生 `CompiledQuery`，内含 SQL 字符串与 `Vec<Value>`。`Executor` 负责把这两个值交给具体驱动。
+
+## Executor 契约
+
+```rust
+#[async_trait::async_trait]
+pub trait Executor: Send + Sync {
+    type Row: Send;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    async fn execute(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<ExecuteResult, Self::Error>;
+
+    async fn fetch_all(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<QueryResult<Self::Row>, Self::Error>;
+}
+```
+
+自定义运行时只需要实现这个边界。它不需要知道 `SelectQuery` 或其他构建器的类型状态。
+
+## Database 门面
+
+```rust
+let database = Database::new(PostgresDialect, executor);
+
+let people: Vec<(i64, String)> = database
+    .fetch_all_as(
+        select_from::<Person>()
+            .select((Person::id(), Person::name())),
+    )
+    .await?
+    .rows;
+```
+
+`Database<D, E>` 保存方言和执行器，并把错误分成以下阶段：
+
+| 变体                         | 含义                         |
+| ---------------------------- | ---------------------------- |
+| `DatabaseError::Build`       | 查询验证或方言编译失败       |
+| `DatabaseError::Execute`     | 驱动、连接或数据库返回错误   |
+| `DatabaseError::Decode`      | 行值无法安全转换为输出类型   |
+| `DatabaseError::NoRows`      | `fetch_one` 没有结果         |
+| `DatabaseError::TooManyRows` | optional 或 one 读取返回多行 |
+
+## 解码
+
+`Row` 暴露按位置读取的驱动中立 `Value`。`FromValue` 支持标量，`FromRow` 支持标量和元组。整数转换是有检查的，越界不会截断。
+
+```rust
+let value: Option<(i64, String)> = database
+    .fetch_optional_as(
+        select_from::<Person>()
+            .select((Person::id(), Person::name()))
+            .filter(Person::id().eq(7)),
+    )
+    .await?;
+```
+
+## 作用域事务
+
+SQLite 与 PostgreSQL 执行器都提供作用域事务 API。操作成功时提交，返回错误时回滚：
+
+```rust
+use a3s_orm::{Executor, Query, SqliteDialect};
+
+let result = executor
+    .transaction(|transaction| {
+        Box::pin(async move {
+            let query = insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36)
+                .compile(&SqliteDialect)?;
+            transaction.execute(&query).await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+        })
+    })
+    .await?;
+```
+
+手动事务通过 `TransactionManager::begin`、`Transaction::commit` 和 `Transaction::rollback` 提供。基础设施代码需要跨多个函数持有事务时再使用它。
+
+## 取消安全
+
+- SQLite 事务在回滚清理结束前持续持有共享连接 gate，其他 clone 不会抢先执行。
+- SQLite savepoint 在取消后会先执行 `ROLLBACK TO SAVEPOINT` 与 `RELEASE SAVEPOINT`。
+- PostgreSQL 会先把未完成事务的连接从池中分离，再异步回滚。
+- 如果 Tokio runtime 已结束，关闭 PostgreSQL 连接会让服务器回滚事务。
+
+这些保证阻止开放事务连接被过早交给后续请求，但不会自动重放应用操作。

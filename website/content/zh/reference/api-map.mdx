@@ -1,0 +1,84 @@
+---
+title: API 地图
+description: 按职责定位 A3S ORM {{DOC_VERSION}} 的公共类型、trait、构造函数与 feature。
+---
+
+# API 地图
+
+本页用于快速定位公共入口。逐项签名与 trait 实现以 [docs.rs](https://docs.rs/a3s-orm) 和当前 {{DOC_VERSION}} 源码为准。
+
+## Schema 与表达式
+
+| API                           | 用途                         |
+| ----------------------------- | ---------------------------- |
+| `orm_table!`                  | 声明表标记和类型化列         |
+| `Table`、`TableRef`           | 表身份与引用                 |
+| `Column<T, V>`                | 带所有权和值类型的列         |
+| `Expression`                  | 布尔与 SQL 表达式 AST        |
+| `SqlComparable`、`SqlNumeric` | 封闭的兼容比较与数值能力标记 |
+| `SelectionExt`                | 为投影添加别名               |
+| `OrderDirection`              | `Asc` 或 `Desc`              |
+| `not`、`exists`               | 一元谓词                     |
+
+## 查询入口
+
+| API                             | 返回                         |
+| ------------------------------- | ---------------------------- |
+| `select_from`、`select_from_as` | `SelectQuery`                |
+| `insert_into`                   | `InsertQuery`                |
+| `update_table`                  | `UpdateQuery`                |
+| `delete_from`                   | `DeleteQuery`                |
+| `lock_table`                    | `TableLockQuery`             |
+| `sql_query`                     | 静态文本 `SqlQuery<Output>`  |
+| `Query`                         | 带关联 `Output` 的编译 trait |
+| `InsertRow`                     | 类型化批量插入行             |
+| `ConflictTarget`                | 一列或多列冲突目标           |
+| `PostgresTableLockMode`         | 封闭表锁模式                 |
+
+<!-- @if atomic-update-claims -->
+
+{{DOC_VERSION}} 的 `UpdateQuery` 还公开 `with`、`set_expression` 与 `from`，用于类型化 UPDATE CTE 和 `UPDATE FROM`。
+
+<!-- @endif -->
+
+## 函数与窗口
+
+| API                                | 用途                      |
+| ---------------------------------- | ------------------------- |
+| `count`、`count_all`、`min`、`max` | 基础聚合                  |
+| `bound`                            | 显式类型化绑定表达式      |
+| `coalesce`、`least`                | 多参数表达式              |
+| `sql_function`                     | 验证名称的自定义标量函数  |
+| `cast`                             | 验证 SQL 类型名的显式转换 |
+| `scalar_subquery`                  | 单投影子查询表达式        |
+| `row_number`、`rank`、`dense_rank` | 窗口函数                  |
+| `WindowExpression`、`WindowFrame`  | 分区、排序与 frame        |
+
+## 执行与解码
+
+| API                                       | 用途                       |
+| ----------------------------------------- | -------------------------- |
+| `CompiledQuery`                           | SQL 与绑定参数             |
+| `Dialect`                                 | 方言编译能力               |
+| `Executor`                                | 异步执行边界               |
+| `Transaction`、`TransactionManager`       | 手动事务契约               |
+| `Database<D, E>`                          | 编译、执行与类型化读取门面 |
+| `ExecuteResult`、`QueryResult<Row>`       | 执行结果容器               |
+| `Row`、`FromRow`、`FromValue`             | 解码契约                   |
+| `Value`、`SqlArray<T>`、`IntoSqlValue<T>` | 驱动中立值边界             |
+
+## 驱动
+
+`sqlite` feature 导出 `SqliteExecutor`、`SqliteOptions`、`SqliteJournalMode`、`SqliteRow`、`SqliteTransaction`、`SqliteSavepoint` 及其错误。
+
+`postgres` feature 导出 `PostgresExecutor`、pool 与 migration options、TLS options、health 与 metrics 快照、事务 options、row、retry class 及其错误。
+
+## 迁移
+
+`Migration`、`PreparedMigration`、`AppliedMigration`、`MigrationBackend`、`Migrator`、`MigrationReport`、`pending_migrations` 与迁移错误共同组成只向前迁移契约。
+
+<!-- @if read-only-schema-admission -->
+
+`MigrationLedger`、`Migrator::verify_required` 与 `MissingAppliedMigration` 为没有 DDL 权限的服务进程提供非写入式 schema 准入。
+
+<!-- @endif -->

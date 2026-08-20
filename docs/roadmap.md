@@ -36,6 +36,9 @@ The project is being developed incrementally. Completed items describe implement
 - Typed CTE-driven `UPDATE FROM`, same-type numeric assignments, and `RETURNING` for atomic worker claims.
 - Typed PostgreSQL table-lock modes.
 - Parameterized transaction-scoped PostgreSQL advisory locks.
+- A versioned documentation website with complete Chinese and English guides,
+  default Chinese routing, same-page locale switching, and
+  v0.3.1/v0.3.0/v0.2.0 version switching.
 
 ## Next
 

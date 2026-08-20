@@ -1,0 +1,69 @@
+---
+title: 架构与生产边界
+description: 了解模块所有权、扩展规则、支持的部署形态、检查清单与当前限制。
+---
+
+# 架构与生产边界
+
+A3S ORM 采用从类型化构建到执行的单向依赖。编译器不打开连接，驱动不理解构建器状态，内部 AST 不是公共 API。
+
+## 模块所有权
+
+| 模块         | 所有权                                 |
+| ------------ | -------------------------------------- |
+| `schema`     | 表身份与引用                           |
+| `expression` | 列、谓词、排序与空值兼容比较           |
+| `function`   | 聚合、标量函数、绑定表达式与 cast      |
+| `window`     | 窗口表达式、排序与 frame               |
+| `query`      | 按语句类型划分的不可变构建器           |
+| `compiler`   | AST 验证、SQL 生成、方言能力与参数累加 |
+| `decode`     | 从驱动中立值转换为查询输出             |
+| `executor`   | 异步执行、事务 trait 与 `Database`     |
+| `drivers`    | 客户端适配、驱动行与驱动错误           |
+| `migration`  | 定义、校验和、协调与后端契约           |
+| `value`      | 绑定参数与无类型结果值边界             |
+
+## 扩展规则
+
+- 新方言实现 `Dialect`。
+- 新运行时实现 `Executor`，并把驱动专属行与错误留在自己的模块。
+- 新 SQL 结构先扩展 AST，再扩展语句构建器，最后扩展编译器与方言能力。
+- 不要通过字符串后缀绕过 AST 验证。
+- 自定义函数与 cast 必须验证名称，并由调用方明确声明结果类型。
+
+## 支持的部署
+
+- 内置 Tokio 安全单连接 SQLite 执行器。
+- 内置 Deadpool PostgreSQL 执行器，可使用调用方提供的 TLS 材料。
+- PostgreSQL、SQLite 与 MySQL 的仅编译模式。
+- 实现公共 `Executor` 的自定义运行时。
+
+## 生产检查清单
+
+1. PostgreSQL 生产连接使用 `connect_tls`，本地或外部安全隧道再使用 `connect_no_tls`。
+2. 使用 `PostgresPoolOptions` 设置容量和 wait、create、recycle deadline。
+3. 按工作负载检查 `SqliteOptions`，不要把单连接执行器当作连接池。
+4. 配置迁移 advisory lock 身份，并按扩展、迁移、验证、收缩发布。
+5. 默认使用类型化构建器。限制 `sql_query` 为经过审查的静态 SQL。
+6. 应用自己固定并审计 lockfile。
+7. 只为已证明幂等的操作设置有界重试，并解决提交不确定性。
+8. 导出无标签的 pool 指标时只添加有界部署标签。
+
+## 当前限制
+
+- SQLite 执行器在一个连接上串行工作。
+- TLS 证书获取与轮换调度由应用负责。
+- 重试分类不会自动重试事务。
+- 带独立 CTE、排序或分页的集合运算操作数暂不支持。
+- SELECT 行锁与表锁目前仅支持 PostgreSQL。
+- 标量函数与 cast 的结果类型由调用方断言。
+- 迁移只向前，不提供自动 down migration。
+- MySQL 没有内置运行时。
+- 尚无类型化 DDL、查询插件、自定义 PostgreSQL domain codec 或 schema 代码生成。
+- 表和 CTE 别名标记由调用方声明，其列形状必须匹配来源。
+
+这些都是显式 API 边界。不支持的子句和值会返回错误，而不是静默降级。
+
+## 验证基线
+
+项目 CI 覆盖 Rust 1.85 MSRV、无默认 feature、单独扩展值 feature、PostgreSQL-only、全 feature、compile-fail doctest、严格 Clippy、无警告 rustdoc、cargo-audit、真实 SQLite 与 PostgreSQL 17 集成测试，以及至少 90% 的全 feature 行覆盖率。

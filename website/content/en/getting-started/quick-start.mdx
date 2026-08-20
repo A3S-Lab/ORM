@@ -1,0 +1,103 @@
+---
+title: Quick start
+description: Declare a typed table, write to SQLite, and decode a result into Rust types.
+---
+
+# Quick start
+
+The following program uses the default SQLite feature to create a table, insert a row, and run a typed read.
+
+## Declare a table and execute queries
+
+```rust
+use a3s_orm::{
+    insert_into, orm_table, select_from, Database, SqliteDialect,
+    SqliteExecutor,
+};
+
+orm_table! {
+    struct Person => "person" {
+        id: i64 => "id",
+        name: String => "name",
+        age: i32 => "age",
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executor = SqliteExecutor::open_in_memory().await?;
+    executor
+        .execute_schema(
+            "create table person (\
+             id integer primary key, \
+             name text not null, \
+             age integer not null)",
+        )
+        .await?;
+
+    let database = Database::new(SqliteDialect, executor);
+
+    database
+        .execute(
+            insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36),
+        )
+        .await?;
+
+    let (name, age): (String, i32) = database
+        .fetch_one_as(
+            select_from::<Person>()
+                .select((Person::name(), Person::age()))
+                .filter(Person::id().eq(1)),
+        )
+        .await?;
+
+    assert_eq!((name.as_str(), age), ("Ada", 36));
+    Ok(())
+}
+```
+
+## What happened
+
+1. `orm_table!` created a zero-sized table marker and typed column constructors.
+2. `insert_into::<Person>()` only accepts columns owned by `Person`.
+3. `value` checks that each Rust value belongs to the column value family.
+4. `Database` compiles with `SqliteDialect` before calling the executor.
+5. `fetch_one_as` decodes the query output type and rejects zero or multiple rows.
+
+## Inspect SQL first
+
+Production code can compile a query before executing it:
+
+```rust
+use a3s_orm::{select_from, Query, SqliteDialect};
+
+let compiled = select_from::<Person>()
+    .select(Person::name())
+    .filter(Person::age().gte(18))
+    .limit(20)
+    .compile(&SqliteDialect)?;
+
+assert_eq!(
+    compiled.sql,
+    "select \"person\".\"name\" from \"person\" \
+     where (\"person\".\"age\" >= ?) limit ?",
+);
+assert_eq!(compiled.parameters.len(), 2);
+# Ok::<(), a3s_orm::Error>(())
+```
+
+## Choose a fetch method
+
+| Method              | Returns           | Row rule                   |
+| ------------------- | ----------------- | -------------------------- |
+| `fetch_all`         | Driver row list   | Any number of rows         |
+| `fetch_optional`    | `Option<Row>`     | At most one row            |
+| `fetch_one`         | Driver row        | Exactly one row            |
+| `fetch_all_as`      | Typed result list | Any number of decoded rows |
+| `fetch_optional_as` | `Option<Output>`  | At most one decoded row    |
+| `fetch_one_as`      | `Output`          | Exactly one decoded row    |
+
+Continue with [tables and expressions](/queries/schema-and-expressions) to learn column ownership, nullability, and expression composition.

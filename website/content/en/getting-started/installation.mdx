@@ -1,0 +1,61 @@
+---
+title: Installation and features
+description: Configure A3S ORM {{DOC_VERSION}} for SQLite, PostgreSQL, or compiler-only use.
+---
+
+# Installation and features
+
+A3S ORM {{DOC_VERSION}} requires Rust 1.85 or newer. Install the current release from its Git tag.
+
+## Default SQLite runtime
+
+The default feature is `sqlite`. This configuration includes the query builder, every dialect compiler, and the Tokio-safe SQLite executor.
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+## PostgreSQL runtime
+
+Disable default features and enable `postgres`:
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}", default-features = false, features = ["postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+`postgres` also enables UUID, JSON, Chrono date and time values, `rust_decimal::Decimal`, and `SqlArray<T>`.
+
+## Compiler-only use
+
+Disable every default feature when your application implements `Executor` or only needs SQL generation:
+
+```toml
+[dependencies]
+a3s-orm = { git = "https://github.com/A3S-Lab/ORM", tag = "{{TAG}}", default-features = false }
+```
+
+This mode still provides `PostgresDialect`, `SqliteDialect`, and `MysqlDialect` without a database client or Tokio dependency.
+
+## Feature list
+
+| Feature    | Default | Includes                                                                      |
+| ---------- | :-----: | ----------------------------------------------------------------------------- |
+| `sqlite`   |   Yes   | `SqliteExecutor`, transactions, savepoints, and migration backend             |
+| `postgres` |   No    | `PostgresExecutor`, pool, TLS, transactions, HA controls, and extended values |
+| `chrono`   |   No    | Date, time, and timestamp values                                              |
+| `decimal`  |   No    | `rust_decimal::Decimal`                                                       |
+| `json`     |   No    | `serde_json::Value`                                                           |
+| `uuid`     |   No    | `uuid::Uuid`                                                                  |
+
+## Minimum toolchain check
+
+```bash
+rustc --version
+cargo check
+```
+
+PostgreSQL integration tests require `A3S_ORM_POSTGRES_URL`. Production TLS configuration also needs CA PEM content. See [PostgreSQL and high availability](/execution/postgresql-and-ha).

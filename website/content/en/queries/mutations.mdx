@@ -1,0 +1,112 @@
+---
+title: INSERT, UPDATE, and DELETE
+description: Build typed writes, batch inserts, conflict handling, expression updates, and returning projections.
+---
+
+# INSERT, UPDATE, and DELETE
+
+Write queries preserve column ownership and value-family constraints. An INSERT or UPDATE without assignments fails during compilation.
+
+## Single-row and multi-row INSERT
+
+```rust
+use a3s_orm::{insert_into, InsertRow};
+
+let single = insert_into::<Person>()
+    .value(Person::id(), 1)
+    .value(Person::name(), "Ada")
+    .value(Person::age(), 36)
+    .returning((Person::id(), Person::name()));
+
+let rows = [
+    InsertRow::<Person>::new()
+        .value(Person::id(), 2)
+        .value(Person::name(), "Grace")
+        .value(Person::age(), 40),
+    InsertRow::<Person>::new()
+        .value(Person::id(), 3)
+        .value(Person::name(), "Linus")
+        .value(Person::age(), 28),
+];
+
+let batch = insert_into::<Person>().rows(rows);
+```
+
+Multi-row compilation verifies identical columns and ordering before adding values to the shared parameter sequence.
+
+## Conflict handling
+
+```rust
+let upsert = insert_into::<Person>()
+    .value(Person::id(), 1)
+    .value(Person::name(), "Ada")
+    .value(Person::age(), 37)
+    .on_conflict(Person::id())
+    .do_update_from_excluded(Person::name())
+    .do_update_from_excluded(Person::age())
+    .returning(Person::id());
+```
+
+A conflict target can be one column or a tuple of up to four columns. `do_nothing`, bound-value updates, and `excluded` references remain structured. The MySQL dialect rejects this syntax.
+
+## UPDATE
+
+```rust
+use a3s_orm::update_table;
+
+let update = update_table::<Person>()
+    .set(Person::name(), "Ada Lovelace")
+    .filter(Person::id().eq(1))
+    .returning((Person::id(), Person::name()));
+```
+
+UPDATE does not require a filter automatically. A full-table update must be explicit, and applications should add policy checks at their boundary.
+
+<!-- @if atomic-update-claims -->
+
+### Expression assignments and UPDATE FROM
+
+```rust
+use a3s_orm::{orm_table, select_from, update_table, OrderDirection};
+
+orm_table! { struct Candidate => "candidate" { id: i64 => "id" } }
+
+let candidates = select_from::<Person>()
+    .select(Person::id())
+    .order_by(Person::id(), OrderDirection::Asc)
+    .limit(5)
+    .for_update()
+    .skip_locked()
+    .as_cte::<Candidate>();
+
+let claim = update_table::<Person>()
+    .with(candidates)
+    .set_expression(Person::age(), Person::age() + 1)
+    .from::<Candidate>()
+    .filter(Person::id().eq_column(Candidate::id()))
+    .returning((Person::id(), Person::age()));
+```
+
+`set_expression` requires an output type matching the destination column. The CTE, assignment, filter, and `RETURNING` share one parameter accumulator.
+
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+### Update boundary in {{DOC_VERSION}}
+
+This version supports bound-value `set` and `returning`, but not `set_expression`, UPDATE CTEs, or `UPDATE FROM`. Do not copy the newer examples into {{DOC_VERSION}}.
+
+<!-- @endif -->
+
+## DELETE
+
+```rust
+use a3s_orm::delete_from;
+
+let removed = delete_from::<Person>()
+    .filter(Person::id().eq(3))
+    .returning(Person::id());
+```
+
+DELETE also permits an omitted filter. Production interfaces should model full-table deletion as a separate controlled operation.

@@ -1,0 +1,57 @@
+---
+title: Values and errors
+description: Understand driver-neutral Value, typed decoding errors, build errors, and driver error classes.
+---
+
+# Values and errors
+
+`Value` is the parameter boundary between compiler and executor and the common representation for driver rows before decoding.
+
+## Value variants
+
+| Variant                | Rust input              | Notes                                 |
+| ---------------------- | ----------------------- | ------------------------------------- |
+| `Null`                 | `Option::None`          | SQL NULL                              |
+| `Bool`                 | `bool`                  | SQLite encodes 0 or 1                 |
+| `I64`                  | Signed integers         | PostgreSQL checks the target range    |
+| `U64`                  | Unsigned integers       | SQLite fails above `i64` range        |
+| `F64`                  | `f32`, `f64`            | Floating-point parameter              |
+| `String`               | `String`, `&str`        | Text                                  |
+| `Bytes`                | `Vec<u8>`               | bytea or blob                         |
+| `Array`                | `SqlArray<T>`           | PostgreSQL array, distinct from bytes |
+| `Uuid`                 | `uuid::Uuid`            | Requires `uuid`                       |
+| `Json`                 | `serde_json::Value`     | Requires `json`                       |
+| Date and time variants | Chrono types            | Requires `chrono`                     |
+| `Decimal`              | `rust_decimal::Decimal` | Requires `decimal`                    |
+
+`SqlArray<T>` separates SQL arrays from `Vec<u8>` byte semantics. PostgreSQL converts each item against the server-inferred element type and reports its index on failure.
+
+## Build errors
+
+Top-level `Error` covers invalid identifiers, empty projections, invalid scalar subqueries, duplicate CTEs, invalid window frames, empty writes, column ownership, conflict structure, lock targets, and dialect compilation.
+
+A build error means the query never reached an executor. Fix query structure instead of retrying it as a transient database failure.
+
+## Decode errors
+
+`DecodeError` distinguishes:
+
+- Missing expected column index.
+- Actual `Value` type incompatible with the target Rust type.
+- Integer outside the target range.
+- SQL array element that could not decode.
+
+`Option<T>` maps only `Value::Null` to `None`. It does not hide other type errors.
+
+## Driver errors
+
+SQLite errors retain execution, parameter, and transaction stages. A scoped transaction can preserve both operation and rollback errors without discarding the primary failure.
+
+PostgreSQL errors also provide `retry_class()` and `is_retryable()`. Classification is stable policy input, not automatic retry behavior. See [PostgreSQL and high availability](/execution/postgresql-and-ha).
+
+## Logging errors
+
+- Do not log credential-bearing connection URLs.
+- TLS option `Debug` omits PEM, but applications must still protect original secret buffers.
+- Pool metrics omit high-cardinality labels. Never turn SQL or complete error messages into metric labels.
+- Log the `DatabaseError` stage and bounded business context while retaining the error source chain.

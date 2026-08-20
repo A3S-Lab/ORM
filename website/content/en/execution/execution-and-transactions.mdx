@@ -1,0 +1,101 @@
+---
+title: Execution, decoding, and transactions
+description: Use Executor, Database, TransactionManager, and the typed decoding boundary.
+---
+
+# Execution, decoding, and transactions
+
+Query builders do not depend on a database client. `Query::compile` produces a `CompiledQuery` containing SQL and `Vec<Value>`. An `Executor` passes those values to a concrete driver.
+
+## Executor contract
+
+```rust
+#[async_trait::async_trait]
+pub trait Executor: Send + Sync {
+    type Row: Send;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    async fn execute(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<ExecuteResult, Self::Error>;
+
+    async fn fetch_all(
+        &self,
+        query: &CompiledQuery,
+    ) -> Result<QueryResult<Self::Row>, Self::Error>;
+}
+```
+
+A custom runtime only implements this boundary. It does not need to understand `SelectQuery` or other builder type states.
+
+## Database facade
+
+```rust
+let database = Database::new(PostgresDialect, executor);
+
+let people: Vec<(i64, String)> = database
+    .fetch_all_as(
+        select_from::<Person>()
+            .select((Person::id(), Person::name())),
+    )
+    .await?
+    .rows;
+```
+
+`Database<D, E>` stores the dialect and executor while separating failure stages:
+
+| Variant                      | Meaning                                                 |
+| ---------------------------- | ------------------------------------------------------- |
+| `DatabaseError::Build`       | Query validation or dialect compilation failed          |
+| `DatabaseError::Execute`     | Driver, connection, or database error                   |
+| `DatabaseError::Decode`      | A row value could not convert safely to the output type |
+| `DatabaseError::NoRows`      | `fetch_one` found no result                             |
+| `DatabaseError::TooManyRows` | An optional or one-row fetch returned multiple rows     |
+
+## Decoding
+
+`Row` exposes driver-neutral `Value` instances by position. `FromValue` handles scalars, while `FromRow` handles scalars and tuples. Integer conversion is checked and never truncates overflow.
+
+```rust
+let value: Option<(i64, String)> = database
+    .fetch_optional_as(
+        select_from::<Person>()
+            .select((Person::id(), Person::name()))
+            .filter(Person::id().eq(7)),
+    )
+    .await?;
+```
+
+## Scoped transactions
+
+SQLite and PostgreSQL executors both provide scoped transaction APIs. Success commits and an operation error rolls back:
+
+```rust
+use a3s_orm::{Executor, Query, SqliteDialect};
+
+let result = executor
+    .transaction(|transaction| {
+        Box::pin(async move {
+            let query = insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36)
+                .compile(&SqliteDialect)?;
+            transaction.execute(&query).await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+        })
+    })
+    .await?;
+```
+
+Manual transactions use `TransactionManager::begin`, `Transaction::commit`, and `Transaction::rollback`. Reserve them for infrastructure that must carry a transaction across functions.
+
+## Cancellation safety
+
+- SQLite keeps the shared connection gate until rollback cleanup completes, so another clone cannot execute early.
+- A cancelled SQLite savepoint completes `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT` first.
+- PostgreSQL detaches an incomplete transaction connection from the pool before asynchronous rollback.
+- If the Tokio runtime has ended, closing the PostgreSQL connection lets the server roll back.
+
+These guarantees prevent an open transaction from reaching a later request. They do not replay application operations automatically.

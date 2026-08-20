@@ -1,0 +1,96 @@
+---
+title: CTE、窗口、锁与原始 SQL
+description: 使用高级 SQL 结构，同时保留方言检查和全局参数顺序。
+---
+
+# CTE、窗口、锁与原始 SQL
+
+高级结构仍然是 AST 节点。它们不会以字符串后缀附加，因此可以参与验证、方言检查和连续参数编号。
+
+## 公用表表达式
+
+```rust
+use a3s_orm::{orm_table, select_from};
+
+orm_table! {
+    struct Adult => "adult" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
+
+let adults = select_from::<Person>()
+    .select((Person::id(), Person::name()))
+    .filter(Person::age().gte(18))
+    .as_cte::<Adult>();
+
+let query = select_from::<Adult>()
+    .with(adults)
+    .select((Adult::id(), Adult::name()));
+```
+
+CTE 名称来自目标表标记。重复名称会在编译阶段被拒绝。
+
+## 集合运算
+
+```rust
+let current = select_from::<Person>().select(Person::name());
+let archived = select_from::<ArchivedPerson>().select(ArchivedPerson::name());
+let names = current.union_all(archived);
+```
+
+`union`、`union_all`、`intersect` 与 `except` 要求两侧具有相同 Rust 输出类型。带 CTE、排序、分页或行锁的操作数目前不受支持。
+
+## 窗口函数
+
+```rust
+use a3s_orm::{row_number, select_from, OrderDirection};
+
+let position = row_number()
+    .partition_by(Person::age())
+    .order_by(Person::name(), OrderDirection::Asc);
+
+let query = select_from::<Person>()
+    .select((Person::name(), position));
+```
+
+还提供 `rank`、`dense_rank` 与显式窗口 frame。无效的 frame 边界会被拒绝。
+
+## PostgreSQL 行锁
+
+```rust
+let jobs = select_from::<Job>()
+    .select(Job::id())
+    .filter(Job::state().eq("ready"))
+    .for_update_of::<Job>()
+    .skip_locked()
+    .limit(10);
+```
+
+支持 `FOR UPDATE`、`FOR NO KEY UPDATE`、`FOR SHARE`、`FOR KEY SHARE`、`NOWAIT` 与 `SKIP LOCKED`。锁目标必须存在于来源表或连接表中。SQLite 与 MySQL 方言会拒绝行锁。
+
+## PostgreSQL 表锁
+
+```rust
+use a3s_orm::{lock_table, PostgresTableLockMode};
+
+let lock = lock_table::<Job>(PostgresTableLockMode::ShareRowExclusive)
+    .no_wait();
+```
+
+表锁模式使用封闭枚举，不接受任意 SQL 片段。
+
+## 受控原始 SQL
+
+```rust
+use a3s_orm::sql_query;
+
+let query = sql_query::<(i64, String)>(
+    "select id, name from person where age >= ",
+)
+.bind(18)
+.append(" order by name limit ")
+.bind(20);
+```
+
+SQL 文本参数必须是静态字符串。动态数据只能通过 `bind` 加入。输出类型是调用方断言，使用前应让静态 SQL 与测试共同覆盖它。

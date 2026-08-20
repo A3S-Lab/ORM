@@ -1,0 +1,112 @@
+---
+title: INSERT、UPDATE 与 DELETE
+description: 构建类型化写入、批量插入、冲突处理、表达式更新与返回投影。
+---
+
+# INSERT、UPDATE 与 DELETE
+
+写查询沿用列所有权和值族约束。没有赋值的 INSERT 或 UPDATE 会在编译阶段失败。
+
+## 单行与多行 INSERT
+
+```rust
+use a3s_orm::{insert_into, InsertRow};
+
+let single = insert_into::<Person>()
+    .value(Person::id(), 1)
+    .value(Person::name(), "Ada")
+    .value(Person::age(), 36)
+    .returning((Person::id(), Person::name()));
+
+let rows = [
+    InsertRow::<Person>::new()
+        .value(Person::id(), 2)
+        .value(Person::name(), "Grace")
+        .value(Person::age(), 40),
+    InsertRow::<Person>::new()
+        .value(Person::id(), 3)
+        .value(Person::name(), "Linus")
+        .value(Person::age(), 28),
+];
+
+let batch = insert_into::<Person>().rows(rows);
+```
+
+多行编译会验证每一行具有相同的列与顺序，然后再把值加入共享参数序列。
+
+## 冲突处理
+
+```rust
+let upsert = insert_into::<Person>()
+    .value(Person::id(), 1)
+    .value(Person::name(), "Ada")
+    .value(Person::age(), 37)
+    .on_conflict(Person::id())
+    .do_update_from_excluded(Person::name())
+    .do_update_from_excluded(Person::age())
+    .returning(Person::id());
+```
+
+冲突目标可以是一列或最多四列的元组。`do_nothing`、绑定值更新与 `excluded` 行引用都会保持结构化。MySQL 方言会拒绝这条语法。
+
+## UPDATE
+
+```rust
+use a3s_orm::update_table;
+
+let update = update_table::<Person>()
+    .set(Person::name(), "Ada Lovelace")
+    .filter(Person::id().eq(1))
+    .returning((Person::id(), Person::name()));
+```
+
+UPDATE 不会自动要求过滤条件。全表更新必须由调用方明确构建，建议在应用边界增加策略检查。
+
+<!-- @if atomic-update-claims -->
+
+### 表达式赋值与 UPDATE FROM
+
+```rust
+use a3s_orm::{orm_table, select_from, update_table, OrderDirection};
+
+orm_table! { struct Candidate => "candidate" { id: i64 => "id" } }
+
+let candidates = select_from::<Person>()
+    .select(Person::id())
+    .order_by(Person::id(), OrderDirection::Asc)
+    .limit(5)
+    .for_update()
+    .skip_locked()
+    .as_cte::<Candidate>();
+
+let claim = update_table::<Person>()
+    .with(candidates)
+    .set_expression(Person::age(), Person::age() + 1)
+    .from::<Candidate>()
+    .filter(Person::id().eq_column(Candidate::id()))
+    .returning((Person::id(), Person::age()));
+```
+
+`set_expression` 要求表达式输出类型与目标列相同。CTE、赋值、过滤和 `RETURNING` 使用同一个参数累加器。
+
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+### {{DOC_VERSION}} 的更新边界
+
+这个版本支持绑定值 `set` 与 `returning`，但没有 `set_expression`、UPDATE CTE 或 `UPDATE FROM`。不要把较新版本的示例复制到 {{DOC_VERSION}}。
+
+<!-- @endif -->
+
+## DELETE
+
+```rust
+use a3s_orm::delete_from;
+
+let removed = delete_from::<Person>()
+    .filter(Person::id().eq(3))
+    .returning(Person::id());
+```
+
+DELETE 同样允许无过滤条件。生产接口应把全表删除作为单独的受控操作。

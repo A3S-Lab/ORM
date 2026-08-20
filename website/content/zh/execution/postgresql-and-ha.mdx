@@ -1,0 +1,95 @@
+---
+title: PostgreSQL 与高可用
+description: 配置有界连接池、事务策略、TLS、健康指标、重试分类和连接池轮换。
+---
+
+# PostgreSQL 与高可用
+
+`PostgresExecutor` 包装 Deadpool 连接池，并使用每连接预编译语句缓存。它的高可用 API只暴露有界策略，不会自动重试任意事务。
+
+## 有界连接池
+
+```rust
+use std::time::Duration;
+use a3s_orm::{PostgresExecutor, PostgresPoolOptions};
+
+let pool = PostgresPoolOptions::new(32)
+    .with_wait_timeout(Some(Duration::from_secs(2)))
+    .with_create_timeout(Some(Duration::from_secs(5)))
+    .with_recycle_timeout(Some(Duration::from_secs(2)));
+
+let executor = PostgresExecutor::connect_no_tls_with(
+    "postgres://postgres@127.0.0.1/app",
+    pool,
+)?;
+```
+
+默认 wait 与 create timeout 是 30 秒，recycle timeout 是 5 秒。`max_size` 必须大于零，显式 pool deadline 不能为零。
+
+## 事务策略
+
+```rust
+use std::time::Duration;
+use a3s_orm::{
+    PostgresIsolationLevel, PostgresTransactionAccessMode,
+    PostgresTransactionOptions,
+};
+
+let options = PostgresTransactionOptions::new()
+    .with_isolation_level(PostgresIsolationLevel::Serializable)
+    .with_access_mode(PostgresTransactionAccessMode::ReadOnly)
+    .with_statement_timeout(Duration::from_secs(5))
+    .with_lock_timeout(Duration::from_millis(500))
+    .with_idle_in_transaction_timeout(Duration::from_secs(10));
+
+let transaction = executor.begin_with(options).await?;
+```
+
+隔离级别和访问模式进入 `BEGIN`。超时通过 transaction-local 设置应用，不会泄漏给后续连接池用户。
+
+`PostgresTransaction::advisory_xact_lock(namespace, key)` 为还没有行身份的逻辑资源提供事务级锁。调用方只提供整数命名空间与键。
+
+## 经过验证的 TLS
+
+```rust
+use a3s_orm::{PostgresExecutor, PostgresPoolOptions, PostgresTlsOptions};
+
+let tls = PostgresTlsOptions::new(ca_pem)
+    .with_client_identity(client_certificate_pem, client_key_pem);
+
+let executor = PostgresExecutor::connect_tls(
+    "postgres://app@db.internal/app?sslmode=require",
+    PostgresPoolOptions::new(32),
+    &tls,
+)?;
+```
+
+TLS 选项拒绝空或无效 PEM，要求 `sslmode=require`，验证服务器名，不在 `Debug` 中输出 PEM，并在最终私钥副本 drop 时清零。
+
+`rotate_tls` 会先建立候选连接池并运行实时健康检查，然后原子替换活动代际。旧池停止接受新获取，已借出的连接可以自然结束。
+
+## 健康与指标
+
+- `pool_status()` 返回容量、借出数、等待者和饱和状态。
+- `pool_metrics()` 返回获取、健康检查、失败分类和轮换的累计计数及有界延迟。
+- `health_check()` 测量一次连接获取和 `SELECT 1` 往返。
+
+快照不包含 URL、主机名、用户、SQL 或凭据。导出指标时只添加有界部署身份。
+
+## 重试分类
+
+| 分类                    | 常见来源                      | 可重试 |
+| ----------------------- | ----------------------------- | :----: |
+| `SerializationConflict` | SQLSTATE `40001`              |   是   |
+| `Deadlock`              | `40P01`                       |   是   |
+| `LockContention`        | `55P03` 或锁超时              |   是   |
+| `Failover`              | `57P01`、`57P02`、`57P03`     |   是   |
+| `ConnectionLoss`        | SQLSTATE `08`、关闭连接或 I/O |   是   |
+| `PoolSaturated`         | 连接池等待超时                |   是   |
+| `Permanent`             | 验证、约束、语法或不支持的值  |   否   |
+
+`is_retryable()` 只表示应用策略可以考虑重试。调用方仍需证明幂等性，设置有界次数与总 deadline，并解决提交结果不确定性。
+
+## 迁移锁
+
+PostgreSQL 迁移使用事务级 advisory lock，默认等待 30 秒。多个独立 schema 共用数据库时，应配置应用专属 lock id。参见[迁移](/operations/migrations)。

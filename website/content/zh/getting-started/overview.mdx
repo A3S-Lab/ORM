@@ -1,0 +1,73 @@
+---
+title: 概览
+description: 理解 A3S ORM 的类型契约、编译边界、运行时模型与当前支持范围。
+---
+
+# 概览
+
+A3S ORM 是一个受 Kysely 启发的 Rust 类型安全 SQL 查询构建器。它让表声明约束列、值、赋值与解码结果，同时让实际 SQL、绑定参数和执行时机保持可见。
+
+它不是 Active Record 框架。记录不拥有持久化方法，查询不会在访问字段时自动执行，运行时值也不会被插入 SQL 文本。
+
+## 核心数据流
+
+```text
+类型化表与表达式
+        |
+  不可变查询 AST
+        |
+    方言编译器
+        |
+ SQL + 绑定参数
+        |
+异步 Executor 与驱动
+```
+
+每一层只拥有一类责任：
+
+| 层                   | 负责                                    | 不负责             |
+| -------------------- | --------------------------------------- | ------------------ |
+| Schema 与 Expression | 表身份、列所有权、值族和合法比较        | SQL 方言与连接     |
+| Query                | SELECT、INSERT、UPDATE、DELETE 及其结构 | 打开数据库连接     |
+| Dialect              | 标识符引号、占位符、能力检查            | 事务与行解码       |
+| Executor             | 异步执行、事务、连接与驱动行            | 理解构建器类型状态 |
+| Decode               | 从驱动中立值安全转换结果                | 隐式修正不兼容类型 |
+
+## 可以依赖的保证
+
+- 列只能用于拥有它的表或显式别名。
+- 比较、赋值和插入值必须属于兼容的 Rust 与 SQL 值族。
+- 动态值只能通过绑定参数进入编译结果。
+- 不支持的方言能力会返回错误，不会生成近似语法。
+- CTE、子查询、窗口和外层查询共享同一个参数编号序列。
+- `Database` 区分构建错误、执行错误、解码错误、无行和多行结果。
+
+<!-- @if atomic-update-claims -->
+
+当前 {{DOC_VERSION}} 还支持类型化 UPDATE CTE、`UPDATE FROM`、表达式赋值和原子 worker claim。候选行锁与状态更新可以保留在同一条参数化语句中。
+
+<!-- @endif -->
+
+<!-- @unless atomic-update-claims -->
+
+{{DOC_VERSION}} 尚未提供类型化 UPDATE CTE、`UPDATE FROM` 与 `set_expression`。需要原子 worker claim 时，请使用经过审查的静态 `sql_query`，或升级到 v0.3.0。
+
+<!-- @endif -->
+
+## 方言与运行时
+
+| 能力          |  PostgreSQL   |      SQLite       | MySQL  |
+| ------------- | :-----------: | :---------------: | :----: |
+| SQL 编译      |     支持      |       支持        |  支持  |
+| 内置异步驱动  |     支持      |       支持        | 不提供 |
+| `RETURNING`   |     支持      |       支持        |  拒绝  |
+| `ON CONFLICT` |     支持      |       支持        |  拒绝  |
+| 行锁与表锁    |     支持      |       拒绝        |  拒绝  |
+| 事务          |     支持      |       支持        | 不提供 |
+| 锁定迁移      | advisory lock | `BEGIN IMMEDIATE` | 不提供 |
+
+SQLite 是默认 feature。PostgreSQL 使用有界 Deadpool 连接池，并提供事务策略、TLS、健康快照与重试分类。MySQL 目前只包含编译器。
+
+## 下一步
+
+先阅读[安装与 feature](/getting-started/installation)，再完成[快速开始](/getting-started/quick-start)。部署前请核对[架构与生产边界](/operations/architecture-and-production)。

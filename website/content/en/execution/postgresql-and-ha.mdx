@@ -1,0 +1,95 @@
+---
+title: PostgreSQL and high availability
+description: Configure bounded pools, transaction policy, TLS, health metrics, retry classes, and pool rotation.
+---
+
+# PostgreSQL and high availability
+
+`PostgresExecutor` wraps a Deadpool connection pool and uses a per-connection prepared-statement cache. Its high-availability API exposes bounded policy and never retries arbitrary transactions automatically.
+
+## Bounded connection pool
+
+```rust
+use std::time::Duration;
+use a3s_orm::{PostgresExecutor, PostgresPoolOptions};
+
+let pool = PostgresPoolOptions::new(32)
+    .with_wait_timeout(Some(Duration::from_secs(2)))
+    .with_create_timeout(Some(Duration::from_secs(5)))
+    .with_recycle_timeout(Some(Duration::from_secs(2)));
+
+let executor = PostgresExecutor::connect_no_tls_with(
+    "postgres://postgres@127.0.0.1/app",
+    pool,
+)?;
+```
+
+The default wait and create timeouts are 30 seconds, with a five-second recycle timeout. `max_size` must be greater than zero, and configured pool deadlines cannot be zero.
+
+## Transaction policy
+
+```rust
+use std::time::Duration;
+use a3s_orm::{
+    PostgresIsolationLevel, PostgresTransactionAccessMode,
+    PostgresTransactionOptions,
+};
+
+let options = PostgresTransactionOptions::new()
+    .with_isolation_level(PostgresIsolationLevel::Serializable)
+    .with_access_mode(PostgresTransactionAccessMode::ReadOnly)
+    .with_statement_timeout(Duration::from_secs(5))
+    .with_lock_timeout(Duration::from_millis(500))
+    .with_idle_in_transaction_timeout(Duration::from_secs(10));
+
+let transaction = executor.begin_with(options).await?;
+```
+
+Isolation and access mode are part of `BEGIN`. Timeouts use transaction-local settings and cannot leak to a later pool user.
+
+`PostgresTransaction::advisory_xact_lock(namespace, key)` provides a transaction lock for logical resources without row identity. The caller supplies integer namespace and key values only.
+
+## Verified TLS
+
+```rust
+use a3s_orm::{PostgresExecutor, PostgresPoolOptions, PostgresTlsOptions};
+
+let tls = PostgresTlsOptions::new(ca_pem)
+    .with_client_identity(client_certificate_pem, client_key_pem);
+
+let executor = PostgresExecutor::connect_tls(
+    "postgres://app@db.internal/app?sslmode=require",
+    PostgresPoolOptions::new(32),
+    &tls,
+)?;
+```
+
+TLS options reject empty or invalid PEM, require `sslmode=require`, verify server names, omit PEM from `Debug`, and zeroize the final private-key copy on drop.
+
+`rotate_tls` builds a candidate pool and runs a live health check before atomically replacing the active generation. The old pool stops new acquisitions while checked-out connections finish naturally.
+
+## Health and metrics
+
+- `pool_status()` reports capacity, checked-out count, waiters, and saturation.
+- `pool_metrics()` reports cumulative acquisition, health, failure-class, and rotation counts with bounded latency aggregates.
+- `health_check()` measures one acquisition and `SELECT 1` round trip.
+
+Snapshots contain no URL, hostname, user, SQL, or credential. Add only bounded deployment identity when exporting metrics.
+
+## Retry classification
+
+| Class                   | Typical source                                       | Retryable |
+| ----------------------- | ---------------------------------------------------- | :-------: |
+| `SerializationConflict` | SQLSTATE `40001`                                     |    Yes    |
+| `Deadlock`              | `40P01`                                              |    Yes    |
+| `LockContention`        | `55P03` or lock deadline                             |    Yes    |
+| `Failover`              | `57P01`, `57P02`, `57P03`                            |    Yes    |
+| `ConnectionLoss`        | SQLSTATE `08`, closed connection, or I/O             |    Yes    |
+| `PoolSaturated`         | Pool wait timeout                                    |    Yes    |
+| `Permanent`             | Validation, constraint, syntax, or unsupported value |    No     |
+
+`is_retryable()` only permits application policy to consider a retry. The caller must still prove idempotency, set bounded attempts and a total deadline, and resolve ambiguous commits.
+
+## Migration lock
+
+PostgreSQL migrations use a transaction-scoped advisory lock with a default 30-second wait. Configure an application-specific lock id when independent schemas share a database. See [migrations](/operations/migrations).

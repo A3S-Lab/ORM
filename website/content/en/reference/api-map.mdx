@@ -1,0 +1,84 @@
+---
+title: API map
+description: Locate public A3S ORM {{DOC_VERSION}} types, traits, constructors, and features by responsibility.
+---
+
+# API map
+
+Use this page to locate public entry points. Refer to [docs.rs](https://docs.rs/a3s-orm) and the selected {{DOC_VERSION}} source for complete signatures and trait implementations.
+
+## Schema and expressions
+
+| API                           | Purpose                                             |
+| ----------------------------- | --------------------------------------------------- |
+| `orm_table!`                  | Declare table markers and typed columns             |
+| `Table`, `TableRef`           | Table identity and references                       |
+| `Column<T, V>`                | Column with ownership and value type                |
+| `Expression`                  | Boolean and SQL expression AST                      |
+| `SqlComparable`, `SqlNumeric` | Closed compatibility and numeric capability markers |
+| `SelectionExt`                | Add an alias to a projection                        |
+| `OrderDirection`              | `Asc` or `Desc`                                     |
+| `not`, `exists`               | Unary predicates                                    |
+
+## Query entry points
+
+| API                             | Returns                                    |
+| ------------------------------- | ------------------------------------------ |
+| `select_from`, `select_from_as` | `SelectQuery`                              |
+| `insert_into`                   | `InsertQuery`                              |
+| `update_table`                  | `UpdateQuery`                              |
+| `delete_from`                   | `DeleteQuery`                              |
+| `lock_table`                    | `TableLockQuery`                           |
+| `sql_query`                     | Static-text `SqlQuery<Output>`             |
+| `Query`                         | Compilation trait with associated `Output` |
+| `InsertRow`                     | Typed batch-insert row                     |
+| `ConflictTarget`                | One-column or multi-column conflict target |
+| `PostgresTableLockMode`         | Closed table-lock mode                     |
+
+<!-- @if atomic-update-claims -->
+
+The {{DOC_VERSION}} `UpdateQuery` also exposes `with`, `set_expression`, and `from` for typed UPDATE CTEs and `UPDATE FROM`.
+
+<!-- @endif -->
+
+## Functions and windows
+
+| API                                | Purpose                                          |
+| ---------------------------------- | ------------------------------------------------ |
+| `count`, `count_all`, `min`, `max` | Basic aggregates                                 |
+| `bound`                            | Explicit typed bound expression                  |
+| `coalesce`, `least`                | Multi-argument expressions                       |
+| `sql_function`                     | Custom scalar function with validated name       |
+| `cast`                             | Explicit conversion with validated SQL type name |
+| `scalar_subquery`                  | Single-projection subquery expression            |
+| `row_number`, `rank`, `dense_rank` | Window functions                                 |
+| `WindowExpression`, `WindowFrame`  | Partitioning, ordering, and frames               |
+
+## Execution and decoding
+
+| API                                       | Purpose                                  |
+| ----------------------------------------- | ---------------------------------------- |
+| `CompiledQuery`                           | SQL plus bound parameters                |
+| `Dialect`                                 | Dialect compilation capabilities         |
+| `Executor`                                | Async execution boundary                 |
+| `Transaction`, `TransactionManager`       | Manual transaction contract              |
+| `Database<D, E>`                          | Compile, execute, and typed-fetch facade |
+| `ExecuteResult`, `QueryResult<Row>`       | Result containers                        |
+| `Row`, `FromRow`, `FromValue`             | Decoding contract                        |
+| `Value`, `SqlArray<T>`, `IntoSqlValue<T>` | Driver-neutral value boundary            |
+
+## Drivers
+
+The `sqlite` feature exports `SqliteExecutor`, `SqliteOptions`, `SqliteJournalMode`, `SqliteRow`, `SqliteTransaction`, `SqliteSavepoint`, and their errors.
+
+The `postgres` feature exports `PostgresExecutor`, pool and migration options, TLS options, health and metric snapshots, transaction options, row, retry class, and their errors.
+
+## Migrations
+
+`Migration`, `PreparedMigration`, `AppliedMigration`, `MigrationBackend`, `Migrator`, `MigrationReport`, `pending_migrations`, and migration errors form the forward-only migration contract.
+
+<!-- @if read-only-schema-admission -->
+
+`MigrationLedger`, `Migrator::verify_required`, and `MissingAppliedMigration` add non-mutating schema admission for serving processes without DDL authority.
+
+<!-- @endif -->

@@ -1,0 +1,119 @@
+---
+title: 表与表达式
+description: 用 orm_table! 声明表，并安全组合列、空值、别名、函数与谓词。
+---
+
+# 表与表达式
+
+`orm_table!` 是查询类型系统的入口。它创建一个实现 `Table` 的零大小标记，并为每一列生成返回 `Column<Table, Value>` 的构造函数。
+
+## 声明表
+
+```rust
+use a3s_orm::orm_table;
+
+orm_table! {
+    pub struct Person => "person" {
+        id: i64 => "id",
+        name: String => "name",
+        nickname: Option<String> => "nickname",
+        age: i32 => "age",
+    }
+}
+```
+
+表名与列名必须是有效 SQL 标识符。编译器会根据方言引用它们，应用值不会经过这个标识符路径。
+
+## 列所有权
+
+列类型带有表标记。下面的赋值在 Rust 编译阶段失败，因为 `Pet::name()` 不属于 `Person`：
+
+```rust compile-fail
+use a3s_orm::{orm_table, update_table};
+
+orm_table! { struct Person => "person" { name: String => "name" } }
+orm_table! { struct Pet => "pet" { name: String => "name" } }
+
+let _ = update_table::<Person>().set(Pet::name(), "Milo");
+```
+
+同一规则保护 INSERT、冲突更新、锁目标和类型化连接。
+
+## 值比较与空值
+
+列提供值比较、列比较和空值谓词：
+
+```rust
+let adults = Person::age().gte(18);
+let named = Person::name().like("A%");
+let missing_nickname = Person::nickname().is_null();
+let combined = adults.and(named).and(missing_nickname);
+```
+
+可空与非空列可以在基础值族兼容时进行列比较。`is_null` 与 `is_not_null` 始终生成 SQL 空值谓词，不会绑定 `NULL` 后再使用 `=`。
+
+## 布尔组合
+
+```rust
+use a3s_orm::not;
+
+let predicate = Person::age()
+    .gte(18)
+    .and(Person::name().like("A%"))
+    .or(not(Person::nickname().is_null()));
+```
+
+`and`、`or` 与 `not` 保留显式表达式树，编译器会添加括号以保持语义。
+
+## 类型化函数
+
+```rust
+use a3s_orm::{bound, cast, coalesce, count, max, sql_function};
+
+let total = count(Person::id());
+let oldest = max(Person::age());
+let display_name = coalesce::<String>([
+    Person::nickname().expression(),
+    Person::name().expression(),
+]);
+let lowered = sql_function::<String>(
+    "lower",
+    [Person::name().expression()],
+)?;
+let as_text = cast::<i32, String>(Person::age().expression(), "text")?;
+let fallback = bound::<String>("unknown");
+# Ok::<(), a3s_orm::Error>(())
+```
+
+`sql_function` 的函数名与 `cast` 的目标类型名会经过验证。它们的返回 Rust 类型是调用方的显式断言，不会查询数据库元数据自动推断。
+
+## 选择别名
+
+```rust
+use a3s_orm::{select_from, SelectionExt};
+
+let query = select_from::<Person>()
+    .select(Person::name().alias("display_name"));
+```
+
+别名经过与表标识符相同的验证和引用规则。
+
+## 表别名
+
+自连接使用单独的表标记：
+
+```rust
+use a3s_orm::{orm_table, select_from_as};
+
+orm_table! {
+    struct Manager => "manager" {
+        id: i64 => "id",
+        name: String => "name",
+    }
+}
+
+let query = select_from_as::<Person, Manager>()
+    .select((Manager::id(), Manager::name()));
+```
+
+AST 分开保存源表与别名，列必须从别名标记构造，因此不会生成带原始表限定符的无效 SQL。

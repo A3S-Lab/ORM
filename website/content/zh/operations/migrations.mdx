@@ -1,0 +1,112 @@
+---
+title: 迁移
+description: 运行有序、带校验和、原子且有界锁的 SQLite 与 PostgreSQL 迁移。
+---
+
+# 迁移
+
+A3S ORM 的迁移是只向前的版本序列。每条迁移拥有版本、名称和 `up_sql`，运行前会排序、验证并计算 SHA-256 校验和。
+
+## 定义并运行
+
+```rust
+use a3s_orm::{Migration, Migrator, SqliteExecutor};
+
+let executor = SqliteExecutor::open("data/app.db").await?;
+let report = Migrator::new(executor)
+    .run([
+        Migration::new(
+            "001",
+            "create people",
+            "create table person (\
+             id integer primary key, \
+             name text not null)",
+        ),
+        Migration::new(
+            "002",
+            "add age",
+            "alter table person add column age integer",
+        ),
+    ])
+    .await?;
+
+println!("applied: {:?}", report.applied);
+```
+
+`MigrationReport::is_up_to_date()` 在没有新迁移时返回 `true`。
+
+## 版本规则
+
+- 版本不能为空。
+- 只允许 ASCII 字母、数字、点、下划线和连字符。
+- 同一次运行中不能出现重复版本。
+- 名称与 SQL 去除空白后不能为空。
+- 迁移按版本字符串排序，所以推荐固定宽度编号，例如 `001`、`002`。
+
+## 历史表与漂移检测
+
+内置后端维护 `a3s_orm_migrations`。每个已应用版本记录其 SHA-256 校验和。
+
+再次运行时：
+
+1. 数据库中的版本必须仍然存在于源码。
+2. 已应用 SQL 的校验和必须保持不变。
+3. 只有尚未应用的版本会执行。
+4. schema 变更和历史行在同一事务提交。
+
+修改或移除已应用迁移会返回 `ChecksumMismatch` 或 `MissingSourceMigration`。修复方式是新增向前迁移，不是改写历史。
+
+## 只读服务进程准入
+
+<!-- @if read-only-schema-admission -->
+
+服务进程可以在没有 DDL 权限时验证所需 schema。`verify_required` 只读取现有 ledger，不创建表、不获取迁移锁，也不写入记录。每条必需迁移必须存在且校验和一致。数据库可以包含更晚的迁移，使旧二进制在明确兼容的滚动发布期间继续运行。
+
+```rust
+use a3s_orm::{Migration, Migrator, SqliteExecutor};
+
+let executor = SqliteExecutor::open("data/app.db").await?;
+Migrator::new(executor)
+    .verify_required([Migration::new(
+        "001",
+        "create people",
+        "create table person (id integer primary key, name text not null)",
+    )])
+    .await?;
+```
+
+只给部署迁移器 DDL 权限，服务角色保持只读。应用仍需自行判断更晚的 schema 是否与当前二进制保持扩展兼容。
+
+<!-- @endif -->
+
+<!-- @unless read-only-schema-admission -->
+
+`MigrationLedger` 与 `Migrator::verify_required` 从 v0.3.1 开始提供。{{DOC_VERSION}} 的 schema 准入需要应用自行检查 ledger，或使用具备迁移权限的角色。
+
+<!-- @endif -->
+
+## 并发锁
+
+SQLite 使用执行器共享 gate 与 `BEGIN IMMEDIATE`。PostgreSQL 在执行迁移的同一事务中获取 advisory lock，并使用有界等待。
+
+```rust
+use std::time::Duration;
+use a3s_orm::{PostgresMigrationOptions, PostgresExecutor};
+
+let executor = executor.with_migration_options(
+    PostgresMigrationOptions::new()
+        .with_advisory_lock_id(0x4150_505f_4442)
+        .with_lock_timeout(Duration::from_secs(10)),
+)?;
+```
+
+不同应用 schema 共用数据库时，应使用不同 lock id。锁等待超时归类为 `LockContention`。
+
+## 滚动发布
+
+1. 扩展：增加可空列、兼容默认值、表或索引。
+2. 迁移：发布能读取旧形状和新形状的代码，在 schema 迁移之外分批回填。
+3. 验证：证明新旧应用版本都能读写，并观察错误与回填指标。
+4. 收缩：旧版本完全退出后，再用后续迁移删除兼容结构。
+
+不要在同一迁移中同时扩展并执行不兼容收缩。

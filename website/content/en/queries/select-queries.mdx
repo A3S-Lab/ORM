@@ -1,0 +1,86 @@
+---
+title: SELECT queries
+description: Build projections, filters, joins, grouping, subqueries, ordering, and typed results.
+---
+
+# SELECT queries
+
+`select_from::<T>()` creates an immutable SELECT builder. Each call consumes and returns a new builder. The final output type comes from the `select` projection.
+
+## Projections and result types
+
+```rust
+use a3s_orm::{select_from, OrderDirection};
+
+let query = select_from::<Person>()
+    .select((Person::id(), Person::name(), Person::nickname()))
+    .filter(Person::age().gte(18))
+    .order_by(Person::name(), OrderDirection::Asc)
+    .limit(20)
+    .offset(40);
+```
+
+This query has `(i64, String, Option<String>)` as its `Output`. Driver rows implementing `Row` can decode that tuple through `FromRow`.
+
+`select_all()` emits `table.*`, but its output type is `()`. List columns explicitly when the caller needs typed decoding.
+
+## Joins
+
+```rust
+orm_table! {
+    struct Pet => "pet" {
+        id: i64 => "id",
+        owner_id: i64 => "owner_id",
+        name: String => "name",
+    }
+}
+
+let query = select_from::<Person>()
+    .select((Person::name(), Pet::name()))
+    .left_join::<Pet>(Person::id().eq_column(Pet::owner_id()))
+    .order_by(Person::name(), OrderDirection::Asc);
+```
+
+The API includes `inner_join`, `left_join`, `right_join`, `full_join`, and alias variants. The dialect determines whether a join form can compile.
+
+## Grouping and HAVING
+
+```rust
+use a3s_orm::{count, select_from};
+
+let pet_count = count(Pet::id());
+let query = select_from::<Pet>()
+    .select((Pet::owner_id(), pet_count.clone()))
+    .group_by(Pet::owner_id())
+    .having(pet_count.gte(2));
+```
+
+Aggregates return `TypedExpression<V>` values that can appear in projections, ordering, or predicates.
+
+## Scalar subqueries
+
+```rust
+use a3s_orm::{max, select_from};
+
+let oldest_age = select_from::<Person>()
+    .select(max(Person::age()));
+
+let query = select_from::<Person>()
+    .select(Person::name())
+    .filter(Person::age().eq_subquery(oldest_age));
+```
+
+A scalar subquery must contain exactly one projected expression. `eq_subquery`, `in_subquery`, and `exists` build predicate forms.
+
+## DISTINCT and expression ordering
+
+```rust
+use a3s_orm::{count, select_from, OrderDirection};
+
+let query = select_from::<Pet>()
+    .select(Pet::owner_id())
+    .distinct()
+    .order_by_expression(count(Pet::id()), OrderDirection::Desc);
+```
+
+Ordering expressions share the query parameter accumulator, so their bound values retain correct numbering.

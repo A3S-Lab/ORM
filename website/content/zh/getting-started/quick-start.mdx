@@ -1,0 +1,103 @@
+---
+title: 快速开始
+description: 定义类型化表，写入 SQLite，再把结果解码为 Rust 类型。
+---
+
+# 快速开始
+
+下面的程序使用默认 SQLite feature 完成建表、写入与类型化读取。
+
+## 定义表并执行查询
+
+```rust
+use a3s_orm::{
+    insert_into, orm_table, select_from, Database, SqliteDialect,
+    SqliteExecutor,
+};
+
+orm_table! {
+    struct Person => "person" {
+        id: i64 => "id",
+        name: String => "name",
+        age: i32 => "age",
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executor = SqliteExecutor::open_in_memory().await?;
+    executor
+        .execute_schema(
+            "create table person (\
+             id integer primary key, \
+             name text not null, \
+             age integer not null)",
+        )
+        .await?;
+
+    let database = Database::new(SqliteDialect, executor);
+
+    database
+        .execute(
+            insert_into::<Person>()
+                .value(Person::id(), 1)
+                .value(Person::name(), "Ada")
+                .value(Person::age(), 36),
+        )
+        .await?;
+
+    let (name, age): (String, i32) = database
+        .fetch_one_as(
+            select_from::<Person>()
+                .select((Person::name(), Person::age()))
+                .filter(Person::id().eq(1)),
+        )
+        .await?;
+
+    assert_eq!((name.as_str(), age), ("Ada", 36));
+    Ok(())
+}
+```
+
+## 发生了什么
+
+1. `orm_table!` 创建零大小表标记和类型化列构造函数。
+2. `insert_into::<Person>()` 只接受 `Person` 的列。
+3. `value` 检查 Rust 值是否与列值族兼容。
+4. `Database` 用 `SqliteDialect` 编译查询，再交给执行器。
+5. `fetch_one_as` 根据查询的输出类型解码一行，并拒绝零行或多行。
+
+## 先检查 SQL
+
+生产代码可以在执行前显式编译查询：
+
+```rust
+use a3s_orm::{select_from, Query, SqliteDialect};
+
+let compiled = select_from::<Person>()
+    .select(Person::name())
+    .filter(Person::age().gte(18))
+    .limit(20)
+    .compile(&SqliteDialect)?;
+
+assert_eq!(
+    compiled.sql,
+    "select \"person\".\"name\" from \"person\" \
+     where (\"person\".\"age\" >= ?) limit ?",
+);
+assert_eq!(compiled.parameters.len(), 2);
+# Ok::<(), a3s_orm::Error>(())
+```
+
+## 选择读取方法
+
+| 方法                | 返回             | 行数规则           |
+| ------------------- | ---------------- | ------------------ |
+| `fetch_all`         | 驱动行列表       | 任意行数           |
+| `fetch_optional`    | `Option<Row>`    | 最多一行           |
+| `fetch_one`         | 驱动行           | 恰好一行           |
+| `fetch_all_as`      | 类型化结果列表   | 任意行数并逐行解码 |
+| `fetch_optional_as` | `Option<Output>` | 最多一行并解码     |
+| `fetch_one_as`      | `Output`         | 恰好一行并解码     |
+
+接下来阅读[表与表达式](/queries/schema-and-expressions)，了解列所有权、空值与组合表达式。
