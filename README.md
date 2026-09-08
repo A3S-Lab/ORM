@@ -2,6 +2,13 @@
   <img src="https://raw.githubusercontent.com/A3S-Lab/ORM/main/assets/readme/hero.svg" width="100%" alt="A3S ORM turns typed Rust schemas and predicates into parameterized SQL for async PostgreSQL and SQLite execution">
 </p>
 
+
+<p align="center">
+  <strong>Language / 语言:</strong>
+  <a href="README.md">English</a> ·
+  <a href="README.zh-CN.md">中文</a>
+</p>
+
 <p align="center">
   <strong>Explicit queries. Compile-time constraints. Async PostgreSQL and SQLite.</strong>
 </p>
