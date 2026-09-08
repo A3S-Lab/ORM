@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Language / 语言:</strong>
+  <strong>语言 / Language:</strong>
   <a href="README.md">English</a> ·
   <a href="README.zh-CN.md">中文</a>
 </p>
@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://a3s-lab.github.io/ORM/">文档</a> ·
   <a href="#the-contract">契约</a>·
-  <a href="#quick-start">快速入门</a>·
+  <a href="#quick-start">快速开始</a>·
   <a href="#capability-map">功能</a>·
   <a href="#drivers-and-dialects">驱动程序</a> ·
   <a href="#migrations">迁移</a> ·
@@ -37,9 +37,9 @@
 构建器编译成 SQL 加绑定参数，然后通过异步执行
 驱动程序中立的接口。
 
-尽管有这个名字，但这并不是一个 Active Record 框架。记录不属于自己
-持久性行为，查询保持可见，并且运行时值永远不会
-插入到生成的 SQL 中。
+尽管有这个名字，但这并不是一个 Active Record 框架。记录不拥有
+持久化行为，查询保持可见，并且运行时值永远不会
+插值进生成的 SQL。
 
 [文档网站](https://a3s-lab.github.io/ORM/)提供了完整的
 v0.3.1、v0.3.0 和 v0.2.0 的中英文指南，包括同页
@@ -47,7 +47,7 @@ v0.3.1、v0.3.0 和 v0.2.0 的中英文指南，包括同页
 
 ## 契约
 
-定义一次架构，与类型化列组合，并检查确切的查询
+一次定义 schema，与类型化列组合，并检查确切的查询
 在到达连接之前：
 
 ```rust
@@ -351,7 +351,7 @@ typed schema + expressions
 [PostgreSQL HA 控制](docs/postgres-ha.md) 用于池和故障转移策略，以及
 计划工作的[路线图](docs/roadmap.md)。
 
-## 发展
+## 开发
 
 该测试套件运行真实的 SQLite 数据库和 PostgreSQL 17 服务。 CI 检查
 特征矩阵、编译失败文档测试、Rust 1.85 MSRV、严格的 Clippy、
